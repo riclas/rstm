@@ -294,7 +294,7 @@ sequencer_run (void* argPtr)
     i_start = 0;
     i_stop = numSegment;
 #endif /* !(HTM || STM) */
-    for (i = i_start; i < i_stop; i+=CHUNK_STEP1) {
+    for (i = i_start; i < i_stop; TMHT_LOCAL_WRITE(i, i+CHUNK_STEP1)) {
         TM_BEGIN();
         {
             long ii;
@@ -367,7 +367,7 @@ sequencer_run (void* argPtr)
         while (list_iter_hasNext(&it, chainPtr)) {
 
             char* segment =
-                (char*)((pair_t*)list_iter_next(&it, chainPtr))->firstPtr;
+                (char*)((pair_t*)TMHTLIST_ITER_NEXT(&it, chainPtr))->firstPtr;
             constructEntry_t* constructEntryPtr;
             long j;
             ulong_t startHash;
@@ -397,9 +397,9 @@ sequencer_run (void* argPtr)
             constructEntryPtr->endHash = (ulong_t)hashString(&segment[1]);
 
             startHash = 0;
-            for (j = 1; j < segmentLength; j++) {
-                startHash = (ulong_t)segment[j-1] +
-                            (startHash << 6) + (startHash << 16) - startHash;
+            for (j = 1; j < segmentLength; TMHT_LOCAL_WRITE(j, j+1)) {
+            	TMHT_LOCAL_WRITE(startHash, (ulong_t)segment[j-1] +
+                            (startHash << 6) + (startHash << 16) - startHash);
                 TM_BEGIN();
                 status = TMTABLE_INSERT(startHashToConstructEntryTables[j],
                                         (ulong_t)startHash,
@@ -411,8 +411,8 @@ sequencer_run (void* argPtr)
             /*
              * For looking up construct entries quickly
              */
-            startHash = (ulong_t)segment[j-1] +
-                        (startHash << 6) + (startHash << 16) - startHash;
+            TMHT_LOCAL_WRITE(startHash, (ulong_t)segment[j-1] +
+                        (startHash << 6) + (startHash << 16) - startHash);
             TM_BEGIN();
             status = TMTABLE_INSERT(hashToConstructEntryTable,
                                     (ulong_t)startHash,
@@ -476,7 +476,7 @@ sequencer_run (void* argPtr)
             while (list_iter_hasNext(&it, chainPtr)) {
 
                 constructEntry_t* startConstructEntryPtr =
-                    (constructEntry_t*)list_iter_next(&it, chainPtr);
+                    (constructEntry_t*)TMHTLIST_ITER_NEXT(&it, chainPtr);
                 char* startSegment = startConstructEntryPtr->segment;
                 long newLength = 0;
 

@@ -214,18 +214,16 @@ process ()
         TM_BEGIN();
         isGarbage = TMELEMENT_ISGARBAGE(elementPtr);
         TM_END();
-        if (isGarbage) {
-            /*
-             * Handle delayed deallocation
-             */
+        /*if (isGarbage) {
+            // Handle delayed deallocation
             PELEMENT_FREE(elementPtr);
             continue;
-        }
+        }*/
 
         long numAdded;
 
         TM_BEGIN();
-        PREGION_CLEARBAD(regionPtr);
+        TM_PREGION_CLEARBAD(regionPtr);
         numAdded = TMREGION_REFINE(regionPtr, elementPtr, meshPtr);
         TM_END();
 
@@ -233,20 +231,18 @@ process ()
         TMELEMENT_SETISREFERENCED(elementPtr, FALSE);
         isGarbage = TMELEMENT_ISGARBAGE(elementPtr);
         TM_END();
-        if (isGarbage) {
-            /*
-             * Handle delayed deallocation
-             */
+        /*if (isGarbage) {
+            // Handle delayed deallocation
             PELEMENT_FREE(elementPtr);
-        }
+        }*/
 
-        totalNumAdded += numAdded;
+        TMHT_LOCAL_WRITE(totalNumAdded, totalNumAdded + numAdded);
 
         TM_BEGIN();
         TMREGION_TRANSFERBAD(regionPtr, workHeapPtr);
         TM_END();
 
-        numProcess++;
+        TMHT_LOCAL_WRITE(numProcess, numProcess+1);
 
     }
 

@@ -181,6 +181,18 @@ TMlist_iter_next (TM_ARGDECL  list_iter_t* itPtr, list_t* listPtr)
     return TM_SHARED_READ_P(next->dataPtr);
 }
 
+/* =============================================================================
+ * TMHTlist_iter_next
+ * =============================================================================
+ */
+void*
+TMHTlist_iter_next (TM_ARGDECL  list_iter_t* itPtr, list_t* listPtr)
+{
+	TMHT_LOCAL_WRITE(*itPtr, (*itPtr)->nextPtr);
+
+	return (*itPtr)->dataPtr;
+}
+
 
 /* =============================================================================
  * allocNode

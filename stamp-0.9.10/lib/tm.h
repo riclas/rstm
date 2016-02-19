@@ -596,10 +596,13 @@
 #  define TM_LOCAL_WRITE_P(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_F(var, val)    ({var = val; var;})
 
+# define TMHT_LOCAL_WRITE(var, var)     ({var = val; var;})
+
 #else /* OTM */
 
 #  define STMREAD  stm::stm_read
 #  define STMWRITE stm::stm_write
+#  define STMLOCALWRITE stm::stm_local_write
 
 #  define TM_SHARED_READ_I(var)    STMREAD(&var, (stm::TxThread*)STM_SELF)
 #  define TM_SHARED_READ_L(var)    STMREAD(&var, (stm::TxThread*)STM_SELF)
@@ -610,6 +613,8 @@
 #  define TM_SHARED_WRITE_L(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
 #  define TM_SHARED_WRITE_P(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
 #  define TM_SHARED_WRITE_F(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
+
+#  define TMHT_LOCAL_WRITE(var, val)   STMLOCALWRITE(&var, val, (stm::TxThread*)STM_SELF)
 
 #  define TM_LOCAL_WRITE_I(var, val)    STM_LOCAL_WRITE_I(var, val)
 #  define TM_LOCAL_WRITE_L(var, val)    STM_LOCAL_WRITE_L(var, val)
@@ -635,6 +640,8 @@
 #  define TM_LOCAL_WRITE_L(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_P(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_F(var, val)    ({var = val; var;})
+
+# define TMHT_LOCAL_WRITE(var, var)     ({var = val; var;})
 
 #endif /* !STM */
 

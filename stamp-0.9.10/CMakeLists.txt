@@ -25,6 +25,7 @@ macro (add_stamp_executable exec name arch)
 
   # Set some baseline defines.
   add_target_definitions(${${exec}} STM STM_API_STAMP HAVE_CONFIG_H)
+  MESSAGE ("define STM")
 endmacro ()
 
 # Utility to copy sources that are sometimes C++ and sometimes C++-tm sources to
@@ -53,7 +54,7 @@ macro (add_stamp_itm_executable exec name arch)
   
   # Add the itm executable.
   add_itm_executable(${exec} ${name}ITM ${arch} ${cxxtm_sources})
-  
+  MESSAGE ("define ITM")
   # When we copy sources like that we need to make sure that they can find the
   # right directory.
   append_property(TARGET ${${exec}} COMPILE_FLAGS -I${CMAKE_CURRENT_SOURCE_DIR})

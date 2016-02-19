@@ -67,6 +67,14 @@ namespace stm
           InvalidTypeAsSecondTemplateParameter itaftp;
           T invalid = (T)itaftp;
       }
+
+      // same as read, but for local writes
+		TM_INLINE
+		static void local_write(T* addr, T val, TxThread* thread)
+		{
+			InvalidTypeAsSecondTemplateParameter itaftp;
+			T invalid = (T)itaftp;
+		}
   };
 
 #if defined(STM_BITS_32)
@@ -85,6 +93,13 @@ namespace stm
       static void write(T* addr, T val, TxThread* thread)
       {
           thread->tmwrite(thread, (void**)addr, (void*)(uintptr_t)val
+                          STM_MASK(~0x0));
+      }
+
+      TM_INLINE
+      static void local_write(T* addr, T val, TxThread* thread)
+      {
+          thread->tm_local_write(thread, (void**)addr, (void*)(uintptr_t)val
                           STM_MASK(~0x0));
       }
   };
@@ -108,6 +123,14 @@ namespace stm
           v.f = val;
           thread->tmwrite(thread, (void**)addr, v.v STM_MASK(~0x0));
       }
+
+      TM_INLINE
+      static void local_write(float* addr, float val, TxThread* thread)
+      {
+          union { float f;  void* v;  } v;
+          v.f = val;
+          thread->tm_local_write(thread, (void**)addr, v.v STM_MASK(~0x0));
+      }
   };
 
   /*** specialization for const float */
@@ -124,6 +147,12 @@ namespace stm
 
       TM_INLINE
       static void write(const float*, float, TxThread*)
+      {
+          UNRECOVERABLE("You should not be writing a const float!");
+      }
+
+      TM_INLINE
+      static void local_write(const float*, float, TxThread*)
       {
           UNRECOVERABLE("You should not be writing a const float!");
       }
@@ -163,6 +192,23 @@ namespace stm
           // write the two words
           thread->tmwrite(thread, addr1, v.v.v1 STM_MASK(~0x0));
           thread->tmwrite(thread, addr2, v.v.v2 STM_MASK(~0x0));
+      }
+
+      TM_INLINE
+      static void local_write(T* addr, T val, TxThread* thread)
+      {
+          // compute the two addresses
+          void** addr1 = (void**)addr;
+          void** addr2 = (void**)((long)addr + 4);
+          // turn the value into two words
+          union {
+              T t;
+              struct { void* v1; void* v2; } v;
+          } v;
+          v.t = val;
+          // write the two words
+          thread->tm_local_write(thread, addr1, v.v.v1 STM_MASK(~0x0));
+          thread->tm_local_write(thread, addr2, v.v.v2 STM_MASK(~0x0));
       }
   };
 
@@ -204,6 +250,23 @@ namespace stm
           thread->tmwrite(thread, addr1, v.v.v1 STM_MASK(~0x0));
           thread->tmwrite(thread, addr2, v.v.v2 STM_MASK(~0x0));
       }
+
+      TM_INLINE
+      static void local_write(double* addr, double val, TxThread* thread)
+      {
+          // compute the two addresses
+          void** addr1 = (void**) addr;
+          void** addr2 = (void**) ((long)addr + 4);
+          // turn the value into two words
+          union {
+              double t;
+              struct { void* v1; void* v2; } v;
+          } v;
+          v.t = val;
+          // write the two words
+          thread->tm_local_write(thread, addr1, v.v.v1 STM_MASK(~0x0));
+          thread->tm_local_write(thread, addr2, v.v.v2 STM_MASK(~0x0));
+      }
   };
 
   /*** specialization for const double */
@@ -227,6 +290,12 @@ namespace stm
 
       TM_INLINE
       static void write(const double*, double, TxThread*)
+      {
+          UNRECOVERABLE("You should not be writing a const double!");
+      }
+
+      TM_INLINE
+      static void local_write(const double*, double, TxThread*)
       {
           UNRECOVERABLE("You should not be writing a const double!");
       }
@@ -269,6 +338,20 @@ namespace stm
           v.v[offset] = val;
           thread->tmwrite(thread, a, v.v2 STM_MASK(0xFF << (8 * offset)));
       }
+
+      TM_INLINE
+      static void local_write(T* addr, T val, TxThread* thread)
+      {
+          // to protect granularity, we need to read the whole word and
+          // then write a byte of it
+          union { T v[4]; void* v2; } v;
+          void** a = (void**)(((long)addr) & ~3);
+          long offset = ((long)addr) & 3;
+          // read the enclosing word
+          v.v2 = thread->tm_local_read(thread, a STM_MASK(0xFF << (8 * offset)));
+          v.v[offset] = val;
+          thread->tm_local_write(thread, a, v.v2 STM_MASK(0xFF << (8 * offset)));
+      }
   };
 
 #elif defined(STM_BITS_64)
@@ -287,6 +370,13 @@ namespace stm
       static void write(T* addr, T val, TxThread* thread)
       {
           thread->tmwrite(thread, (void**)addr, (void*)(uintptr_t)val
+                          STM_MASK(~0x0));
+      }
+
+      TM_INLINE
+      static void local_write(T* addr, T val, TxThread* thread)
+      {
+          thread->tm_local_write(thread, (void**)addr, (void*)(uintptr_t)val
                           STM_MASK(~0x0));
       }
   };
@@ -310,6 +400,14 @@ namespace stm
           v.d = val;
           thread->tmwrite(thread, (void**)addr, v.v STM_MASK(~0x0));
       }
+
+      TM_INLINE
+      static void local_write(double* addr, double val, TxThread* thread)
+      {
+          union { double d;  void*  v; } v;
+          v.d = val;
+          thread->tm_local_write(thread, (void**)addr, v.v STM_MASK(~0x0));
+      }
   };
 
   /*** specialization for const double */
@@ -326,6 +424,12 @@ namespace stm
 
       TM_INLINE
       static void write(const double*, double, TxThread*)
+      {
+          UNRECOVERABLE("You should not be writing a const double!");
+      }
+
+      TM_INLINE
+      static void local_write(const double*, double, TxThread*)
       {
           UNRECOVERABLE("You should not be writing a const double!");
       }
@@ -365,6 +469,23 @@ namespace stm
           // write the two words
           thread->tmwrite(thread, addr1, v.v.v1 STM_MASK(~0x0));
           thread->tmwrite(thread, addr2, v.v.v2 STM_MASK(~0x0));
+      }
+
+      TM_INLINE
+      static void local_write(double* addr, double val, TxThread* thread)
+      {
+          // compute the two addresses
+          void** addr1 = (void**) addr;
+          void** addr2 = (void**) ((long)addr + 4);
+          // turn the value into two words
+          union {
+              double t;
+              struct { void* v1; void* v2; } v;
+          } v;
+          v.t = val;
+          // write the two words
+          thread->tm_local_write(thread, addr1, v.v.v1 STM_MASK(~0x0));
+          thread->tm_local_write(thread, addr2, v.v.v2 STM_MASK(~0x0));
       }
   };
 
@@ -413,6 +534,22 @@ namespace stm
           thread->tmwrite(thread, a, v.v2
                           STM_MASK(0xffffffff << (32 * offset)));
       }
+
+      TM_INLINE
+      static void local_write(T* addr, T val, TxThread* thread)
+      {
+          // to protect granularity, we need to read the whole word and
+          // then write a byte of it
+          union { T v[2]; void* v2; } v;
+          void** a = (void**)(((intptr_t)addr) & ~7ul);
+          int offset = (((intptr_t)addr)>>2) & 1;
+          // read the enclosing word
+          v.v2 = thread->tm_local_read(thread, a
+                                STM_MASK(0xffffffff << (32 * offset)));
+          v.v[offset] = val;
+          thread->tm_local_write(thread, a, v.v2
+                          STM_MASK(0xffffffff << (32 * offset)));
+      }
   };
 
   /*** specialization for floats */
@@ -445,6 +582,21 @@ namespace stm
           thread->tmwrite(thread, a, v.v2
                           STM_MASK(0xffffffff << (32 * offset)));
       }
+
+      TM_INLINE
+      static void local_write(float* addr, float val, TxThread* thread)
+      {
+          // read the whole word, then write a word of it
+          union { float v[2]; void* v2; } v;
+          void**a = (void**)(((intptr_t)addr) & ~7ul);
+          int offset = (((intptr_t)addr)>>2) & 1;
+          // read enclosing word
+          v.v2 = thread->tm_local_read(thread, a
+                                STM_MASK(0xffffffff << (32 * offset)));
+          v.v[offset] = val;
+          thread->tm_local_write(thread, a, v.v2
+                          STM_MASK(0xffffffff << (32 * offset)));
+      }
   };
 
   /*** specialization for const float */
@@ -465,6 +617,12 @@ namespace stm
 
       TM_INLINE
       static void write(const float*, float, TxThread*)
+      {
+          UNRECOVERABLE("You should not be writing a const float!");
+      }
+
+      TM_INLINE
+      static void local_write(const float*, float, TxThread*)
       {
           UNRECOVERABLE("You should not be writing a const float!");
       }
@@ -501,6 +659,22 @@ namespace stm
                                 STM_MASK(0xffffffff << (8 * offset)));
           v.v[offset] = val;
           thread->tmwrite(thread, a, v.v2
+                          STM_MASK(0xffffffff << (8 * offset)));
+      }
+
+      TM_INLINE
+      static void local_write(T* addr, T val, TxThread* thread)
+      {
+          // to protect granularity, we need to read the whole word and
+          // then write a byte of it
+          union { T v[8]; void* v2; } v;
+          void** a = (void**)(((long)addr) & ~7);
+          long offset = ((long)addr) & 7;
+          // read the enclosing word
+          v.v2 = thread->tm_local_read(thread, a
+                                STM_MASK(0xffffffff << (8 * offset)));
+          v.v[offset] = val;
+          thread->tm_local_write(thread, a, v.v2
                           STM_MASK(0xffffffff << (8 * offset)));
       }
   };

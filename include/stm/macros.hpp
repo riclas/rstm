@@ -44,6 +44,16 @@
          CAT2(end, __LINE__) = COLLECTION.begin();      \
          VAR >= CAT2(end, __LINE__); --VAR)
 
+#define foreach_ptr(TYPE, VAR, COLLECTION)                  \
+    for (TYPE::iterator VAR = COLLECTION->begin(),       \
+         CEND = COLLECTION->end();                       \
+         VAR != CEND; VAR++)
+
+#define foreach_log_ptr(TYPE, VAR, COLLECTION)                  \
+    for (TYPE::iterator VAR = COLLECTION->begin();       \
+         VAR.hasNext();                       \
+         VAR.next() )
+
 /**
  *  When we use compiler-based instrumentation, support for
  *  sub-word-granularity accesses requires the individual STM read/write
@@ -57,6 +67,18 @@
 #define STM_MASK(x)
 #else
 #error "Either STM_WS_BYTELOG or STM_WS_WORDLOG must be defined"
+#endif
+
+/**
+ *  We need to protect the stack from "stale" writes during redo-writeback and
+ *  undo-undo. This requires some platform-specific functionality to get some
+ *  stack information.
+ */
+#ifdef STM_PROTECT_STACK
+#   define STM_WHEN_PROTECT_STACK(S) S
+#   define TOP_OF_ARGS(N) ((void**)__builtin_frame_address(0) + 2 + N)
+#else
+#   define STM_WHEN_PROTECT_STACK(S)
 #endif
 
 #ifdef STM_ABORT_ON_THROW
@@ -73,11 +95,27 @@
 #   define STM_WRITE_SIG(tx, addr, val, mask) TxThread* tx, void** addr, void* val
 #endif
 
-#if defined(STM_ABORT_ON_THROW)
-#   define STM_ROLLBACK_SIG(tx, exception, len)  \
-    TxThread* tx, void** exception, size_t len
+#if defined(STM_PROTECT_STACK)
+#   define STM_COMMIT_SIG(tx, stack)  TxThread* tx, void** stack
+#   define STM_IRREVOC_SIG(tx, stack) TxThread* tx, void** stack
 #else
-#   define STM_ROLLBACK_SIG(tx, exception, len)  TxThread* tx
+#   define STM_COMMIT_SIG(tx, stack)  TxThread* tx
+#   define STM_IRREVOC_SIG(tx, stack) TxThread* tx
+#endif
+
+#if defined(STM_PROTECT_STACK) && defined(STM_ABORT_ON_THROW)
+#   define STM_ROLLBACK_SIG(tx, stack, exception, len)                  \
+    TxThread* tx, void** stack, void** exception, size_t len
+#elif defined(STM_PROTECT_STACK) && !defined(STM_ABORT_ON_THROW)
+#   define STM_ROLLBACK_SIG(tx, stack, exception, len)  \
+    TxThread* tx, void** stack
+#elif !defined(STM_PROTECT_STACK) && defined(STM_ABORT_ON_THROW)
+#   define STM_ROLLBACK_SIG(tx, stack, exception, len)  \
+    TxThread* tx, void** exception, size_t len
+#elif !defined(STM_PROTECT_STACK) && !defined(STM_ABORT_ON_THROW)
+#   define STM_ROLLBACK_SIG(tx, stack, exception, len)  TxThread* tx
+#else
+#   error Preprocessor if/else logic error
 #endif
 
 #endif // MACROS_HPP__

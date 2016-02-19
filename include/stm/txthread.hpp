@@ -19,15 +19,21 @@
 #ifndef TXTHREAD_HPP__
 #define TXTHREAD_HPP__
 
+#include "alt-license/rand_r_32.h"
 #include "common/locks.hpp"
+#include "common/ThreadLocal.hpp"
 #include "stm/metadata.hpp"
 #include "stm/WriteSet.hpp"
 #include "stm/UndoLog.hpp"
 #include "stm/ValueList.hpp"
+#include "stm/ChunkedLog.h"
 #include "WBMMPolicy.hpp"
+#include <vector>
+#include <list>
 
 namespace stm
 {
+
   /**
    *  The TxThread struct holds all of the metadata that a thread needs in
    *  order to use any of the STM algorithms we support.  In the past, this
@@ -50,23 +56,31 @@ namespace stm
       WBMMPolicy     allocator;     // buffer malloc/free
       uint32_t       num_commits;   // stats counter: commits
       uint32_t       num_aborts;    // stats counter: aborts
+      uint32_t       unique_aborts;  // stats counter: unique aborts
       uint32_t       num_restarts;  // stats counter: restart()s
       uint32_t       num_ro;        // stats counter: read-only commits
       scope_t* volatile scope;      // used to roll back; also flag for isTxnl
-#ifdef STM_PROTECT_STACK
-      void**         stack_high;    // the stack pointer at begin_tx time
-      void**         stack_low;     // norec stack low-water mark
-#endif
+      scope_t* volatile *scopes;
       uintptr_t      start_time;    // start time of transaction
+      pad_word_t*      start_times;    // start time of speculative transactions
       uintptr_t      end_time;      // end time of transaction
       uintptr_t      ts_cache;      // last validation time
+      uintptr_t      validate_ts;    // time of last validation request
       bool           tmlHasLock;    // is tml thread holding the lock
       UndoLog        undo_log;      // etee undo log
       ValueList      vlist;         // NOrec read log
+      cache_line_storage<ValueList*>*    vlist_v;
+      wlpdstm::Log<ValueListEntry>** read_logs;       //NOrecHT read logs
       WriteSet       writes;        // write set
+      cache_line_storage<WriteSet*>*       writesets;    //NOrecHT write logs
+      cache_line_storage<WriteSet*>*       local_writesets;    //NOrecHT local write logs
+      uintptr_t tx_first_index;
+      uintptr_t tx_last_index;
       OrecList       r_orecs;       // read set for orec STMs
+      wlpdstm::Log<orec_t*>** r_orecs_v;
       OrecList       locks;         // list of all locks held by tx
       id_version_t   my_lock;       // lock word for orec STMs
+      id_version_t*  my_lock_v;
       filter_t*      wf;            // write filter
       filter_t*      rf;            // read filter
       volatile uint32_t prio;       // for priority
@@ -84,11 +98,32 @@ namespace stm
       uintptr_t      cm_ts;         // the contention manager timestamp
       filter_t*      cf;            // conflict filter (RingALA)
       NanorecList    nanorecs;      // list of nanorecs held
+      NanorecList**  nanorecs_v;
       uint32_t       consec_commits;// count consec commits
       toxic_t        abort_hist;    // for counting poison
       uint32_t       begin_wait;    // how long did last tx block at begin
       bool           strong_HG;     // for strong hourglass
       bool           irrevocable;   // tells begin_blocker that I'm THE ONE
+      bool          requires_validation;
+      /*bool           validated;
+      bool           commit_ready;
+      bool           commited;
+      */
+      pad_word_t     commits_requested;
+      pad_word_t     commits_done;
+      uintptr_t            dirty_commit;
+      pad_word_t     abort_required;
+      bool           abort_transaction;
+      bool           running;
+      uintptr_t      average_time;
+      uintptr_t      insert_time;
+      uintptr_t      validation_time;
+
+      int average_val;
+      int reads;
+      int wait_commit;
+      uintptr_t time;
+      uintptr_t start;
 
       /*** PER-THREAD FIELDS FOR ENABLING ADAPTIVITY POLICIES */
       uint64_t      end_txn_time;      // end of non-transactional work
@@ -114,20 +149,24 @@ namespace stm
        * use this return to execute completely uninstrumented code if it's
        * available.
        */
-      static TM_FASTCALL bool(*volatile tmbegin)(TxThread*);
+      static bool(TM_FASTCALL *volatile tmbegin)(TxThread*);
 
       /*** Per-thread commit, read, and write pointers */
-      TM_FASTCALL void(*tmcommit)(TxThread*);
-      TM_FASTCALL void*(*tmread)(STM_READ_SIG(,,));
-      TM_FASTCALL void(*tmwrite)(STM_WRITE_SIG(,,,));
+      void(TM_FASTCALL *tmcommit)(STM_COMMIT_SIG(,));
+      void*(TM_FASTCALL *tmread)(STM_READ_SIG(,,));
+      void(TM_FASTCALL *tmwrite)(STM_WRITE_SIG(,,,));
+      void*(TM_FASTCALL *tm_local_read)(STM_READ_SIG(,,));
+      void(TM_FASTCALL *tm_local_write)(STM_WRITE_SIG(,,,));
+      uintptr_t  (*commit_ht)(STM_COMMIT_SIG(,));
 
+      void(*tmend)(STM_COMMIT_SIG(,));
       /**
        * Some APIs, in particular the itm API at the moment, want to be able
        * to rollback the top level of nesting without actually unwinding the
        * stack. Rollback behavior changes per-implementation (some, such as
        * CGL, can't rollback) so we add it here.
        */
-      static scope_t* (*tmrollback)(STM_ROLLBACK_SIG(,,));
+      static scope_t* (*tmrollback)(STM_ROLLBACK_SIG(,,,));
 
       /**
        * The function for aborting a transaction. The "tmabort" function is
@@ -141,25 +180,30 @@ namespace stm
       static NORETURN void (*tmabort)(TxThread*);
 
       /*** how to become irrevocable in-flight */
-      static bool(*tmirrevoc)(TxThread*);
-
-      /**
-       * for shutting down threads.  Currently a no-op.
-       */
-      static void thread_shutdown() { }
+      static bool(*tmirrevoc)(STM_IRREVOC_SIG(,));
 
       /**
        * the init factory.  Construction of TxThread objects is only possible
        * through this function.  Note, too, that destruction is forbidden.
        */
       static void thread_init();
+
+      static int numThreads;
+
+      static uintptr_t SPECULATIVE_TXS;
+
+      static uintptr_t MAX_SPEC_TXS;
+
+      static int WORKERS_PER_HELPER;
+
     protected:
-      TxThread();
+      TxThread(uint32_t id);
       ~TxThread() { }
+
   }; // class TxThread
 
   /*** GLOBAL VARIABLES RELATED TO THREAD MANAGEMENT */
-  extern __thread TxThread* Self; // this thread's TxThread
+  extern THREAD_LOCAL_DECL_TYPE(TxThread*) Self; // this thread's TxThread
 
 } // namespace stm
 

@@ -25,7 +25,10 @@ namespace stm
       // set my read/write/commit pointers
       tx->tmread     = stms[new_alg].read;
       tx->tmwrite    = stms[new_alg].write;
+      tx->tm_local_write = stms[new_alg].local_write;
       tx->tmcommit   = stms[new_alg].commit;
+      tx->commit_ht  = stms[new_alg].commit_ht;
+      tx->tmend = stms[new_alg].end;
   }
 
   /**
@@ -64,10 +67,13 @@ namespace stm
 
       // set per-thread pointers
       for (unsigned i = 0; i < threadcount.val; ++i) {
-          threads[i]->tmread     = stms[new_alg].read;
-          threads[i]->tmwrite    = stms[new_alg].write;
-          threads[i]->tmcommit   = stms[new_alg].commit;
-          threads[i]->consec_aborts  = 0;
+          threads[i].data->tmread     = stms[new_alg].read;
+          threads[i].data->tmwrite    = stms[new_alg].write;
+          threads[i].data->tm_local_write    = stms[new_alg].local_write;
+          threads[i].data->tmcommit   = stms[new_alg].commit;
+          threads[i].data->commit_ht  = stms[new_alg].commit_ht;
+          threads[i].data->tmend = stms[new_alg].end;
+          threads[i].data->consec_aborts  = 0;
       }
 
       TxThread::tmrollback = stms[new_alg].rollback;

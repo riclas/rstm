@@ -12,6 +12,7 @@
 #include "libitm.h"
 #include "Transaction.h"
 #include "Scope.h"
+#include "StackProtection.h"
 #include "stm/txthread.hpp"
 using namespace itm2stm;
 using std::pair;
@@ -31,11 +32,14 @@ _ITM_transaction::reenter(Node* const scope) {
 /// the inner scope. After rollback we will need to leave the scope for it to be
 /// removed from the scopes stack.
 inline void
-_ITM_transaction::rollback() {
+_ITM_transaction::rollback(void** stack_lower_bound) {
     // Our scope's rollback tells us the exception object range, so that the
     // rstm library can either a) avoid undo-ing to that region, or b) actually
     // redo to that region.
-    pair<void**, size_t>& thrown = inner()->rollback();
+    //
+    // The stack_lower_bound is used to protect our execution from being
+    // clobbered by an undo log.
+    pair<void**, size_t>& thrown = inner()->rollback(stack_lower_bound);
 
     // NB: In the current version of libstm We have a mismatch between the
     //     fact that the shim is using closed nesting, and the library is
@@ -60,10 +64,8 @@ _ITM_transaction::rollback() {
         // is why we can only call it once we know the depth is supposed to be
         // 0. It's not relevant that we've already set the depth to 0; that
         // behavior is to support RSTM's "library" API.
-        thread_handle_.tmrollback(&thread_handle_, thrown.first,
-                                  thrown.second);
-        thread_handle_.stack_high = 0x0;
-        thread_handle_.stack_low = (void**)~0x0;
+        thread_handle_.tmrollback(&thread_handle_, stack_lower_bound,
+                                  thrown.first, thrown.second);
     }
 }
 
@@ -71,8 +73,8 @@ _ITM_transaction::rollback() {
 /// after the transaction block. It is only used to implement an explicit,
 /// user-level cancel operation.
 inline void
-_ITM_transaction::cancel() {
-    rollback();
+_ITM_transaction::cancel(void** stack_lower_bound) {
+    rollback(stack_lower_bound);
     Node* scope = leave();
     scope->restore(a_abortTransaction | a_restoreLiveVariables);
 }
@@ -81,8 +83,8 @@ _ITM_transaction::cancel() {
 /// "reenter" call. This is used to both support explicit, user-level retry, and
 /// as a response to a conflict (via tmabort in libstm-5.1,5.cpp).
 inline void
-_ITM_transaction::restart() {
-    rollback();
+_ITM_transaction::restart(void** stack_lower_bound) {
+    rollback(stack_lower_bound);
     Node* scope = leave();
     uint32_t mode = reenter(scope);
     scope->restore(mode | a_restoreLiveVariables);
@@ -92,7 +94,7 @@ _ITM_transaction::restart() {
 /// complicated logic specified in the ITM ABI spec that we need to implement
 /// here, primarily to figure out where we need to restart execution.
 inline void
-_ITM_transaction::abort(_ITM_abortReason why) {
+_ITM_transaction::abort(_ITM_abortReason why, void** stack_lower_bound) {
     // CASE 4: If the reason is exceptionBlockAbort, then we are supposed to act
     //         like the previous, non-exceptionBlockAbort reason, if there is
     //         one, or TMConflict if there isn't one.
@@ -110,7 +112,7 @@ _ITM_transaction::abort(_ITM_abortReason why) {
     //         condition that I don't truly understand but which is easy enough
     //         to implement.
     if (inner()->isExceptionBlock() || why & userAbort)
-        cancel(); // noreturn
+        cancel(stack_lower_bound); // noreturn
 
     assert(why & (userRetry | TMConflict) && "Should be one of these cases.");
 
@@ -122,26 +124,33 @@ _ITM_transaction::abort(_ITM_abortReason why) {
             //         signal abort like CASE 1, except we set the outermost
             //         scope as aborted---per spec.
             outer_scope_->setAborted(true);
-            cancel(); // noreturn
+            cancel(stack_lower_bound); // noreturn
         }
         // incrementally rollback and leave the scope
-        rollback();
+        rollback(stack_lower_bound);
         leave();
         scope = inner(); // updates loop variable
     }
 
     // CASE 3: we're restarting the top scope
-    restart(); // noreturn
+    restart(stack_lower_bound); // noreturn
 }
 
 // 5.8  Aborting a transaction
 void
 _ITM_abortTransaction(_ITM_transaction* td, _ITM_abortReason why,
                       const _ITM_srcLocation*) {
-    td->abort(why);
+    td->abort(why, COMPUTE_PROTECTED_STACK_ADDRESS_ITM_FASTCALL(3));
 }
 
 void
 _ITM_rollbackTransaction(_ITM_transaction* td, const _ITM_srcLocation*) {
-    td->rollback();
+    // This is a bit of a strange ABI call, because we're going to protect the
+    // stack internally, but an undo log may clobber the external stack, i.e.,
+    // anything between the outermost _ITM_beginTransaction call and the call to
+    // _ITM_rollbackTransaction could be undone.
+    //
+    // It's the only ABI call that calls rollback /without/ also restoring the
+    // begin-transaction scope.
+    td->rollback(COMPUTE_PROTECTED_STACK_ADDRESS_ITM_FASTCALL(2));
 }

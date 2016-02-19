@@ -108,7 +108,12 @@ namespace stm
           return;
 
       // dispatch to the appropriate end function
+#ifdef STM_PROTECT_STACK
+      void* top_of_stack;
+      tx->tmcommit(tx, &top_of_stack);
+#else
       tx->tmcommit(tx);
+#endif
 
       // zero scope (to indicate "not in tx")
       CFENCE;
@@ -180,7 +185,7 @@ namespace stm
    *  We rely on the default setjmp/longjmp abort handling when using the
    *  library API.
    */
-  void sys_init(void (*abort_handler)(TxThread*) = NULL);
+  void sys_init(int numThreads, void (*abort_handler)(TxThread*) = NULL);
 
   /**
    *  Shut down the library.  This just dumps some statistics.
@@ -191,7 +196,7 @@ namespace stm
   inline void thread_init() { TxThread::thread_init(); }
 
   /***  Shut down a thread's transactional context */
-  inline void thread_shutdown() { TxThread::thread_shutdown(); }
+  void thread_shutdown();
 
   /**
    *  Set the current STM algorithm/policy.  This should be called at the
@@ -203,9 +208,17 @@ namespace stm
   const char* get_algname();
 
   /**
-   *  Become irrevocable.  Call this from within a transaction.
+   *  Try to become irrevocable.  Call this from within a transaction.
    */
-  void become_irrevoc();
+  bool become_irrevoc(STM_WHEN_PROTECT_STACK(void** top_of_stack));
+
+#ifdef STM_PROTECT_STACK
+#   define TM_BECOME_IRREVOC() ({    \
+  void* top_of_stack; \
+  stm::become_irrevoc(&top_of_stack); })
+#else
+#   define TM_BECOME_IRREVOC() stm::become_irrevoc()
+#endif
 
   /**
    *  Abort the current transaction and restart immediately.
@@ -233,6 +246,12 @@ namespace stm
   {
       DISPATCH<T, sizeof(T)>::write(addr, val, thread);
   }
+
+  template <typename T>
+  inline void stm_local_write(T* addr, T val, TxThread* thread)
+  {
+      DISPATCH<T, sizeof(T)>::local_write(addr, val, thread);
+  }
 } // namespace stm
 
 /**
@@ -240,6 +259,7 @@ namespace stm
  */
 #define TM_READ(var)       stm::stm_read(&var, tx)
 #define TM_WRITE(var, val) stm::stm_write(&var, val, tx)
+#define TMHT_LOCAL_WRITE_LIB(var, val) stm::stm_local_write(&var, val, tx)
 
 /**
  *  This is the way to start a transaction
@@ -274,15 +294,15 @@ namespace stm
 #define TM_WAIVER
 #define TM_CALLABLE
 
-#define TM_SYS_INIT()        stm::sys_init()
-#define TM_THREAD_INIT       stm::thread_init
-#define TM_THREAD_SHUTDOWN() stm::thread_shutdown()
-#define TM_SYS_SHUTDOWN      stm::sys_shutdown
-#define TM_ALLOC             stm::tx_alloc
-#define TM_FREE              stm::tx_free
-#define TM_SET_POLICY(P)     stm::set_policy(P)
-#define TM_BECOME_IRREVOC()  stm::becom_irrevoc()
-#define TM_GET_ALGNAME()     stm::get_algname()
+#define TM_SYS_INIT(numThreads)        stm::sys_init(numThreads)
+#define TM_THREAD_INIT                 stm::thread_init
+#define TM_THREAD_SHUTDOWN()           stm::thread_shutdown()
+#define TM_SYS_SHUTDOWN                stm::sys_shutdown
+#define TM_ALLOC                       stm::tx_alloc
+#define TM_FREE                        stm::tx_free
+#define TM_SET_POLICY(P)               stm::set_policy(P)
+
+#define TM_GET_ALGNAME()               stm::get_algname()
 
 /**
  * This is gross.  ITM, like any good compiler, will make nontransactional

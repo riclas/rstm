@@ -46,11 +46,12 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void local_write(STM_WRITE_SIG(,,,));
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
       static NOINLINE void privtest(TxThread* tx, uintptr_t ts);
   };
@@ -81,7 +82,7 @@ namespace {
    *    RO commit is trivial
    */
   void
-  OrecELA::commit_ro(TxThread* tx)
+  OrecELA::commit_ro(STM_COMMIT_SIG(tx,))
   {
       tx->r_orecs.reset();
       OnReadOnlyCommit(tx);
@@ -99,7 +100,7 @@ namespace {
    *    then can this txn mark its writeback complete.
    */
   void
-  OrecELA::commit_rw(TxThread* tx)
+  OrecELA::commit_rw(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // acquire locks
       foreach (WriteSet, i, tx->writes) {
@@ -136,7 +137,7 @@ namespace {
       }
 
       // run the redo log
-      tx->writes.writeback();
+      tx->writes.writeback(STM_WHEN_PROTECT_STACK(upper_stack_bound));
 
       // release locks
       foreach (OrecList, i, tx->locks)
@@ -251,6 +252,12 @@ namespace {
       tx->writes.insert(WriteSetEntry(STM_WRITE_SET_ENTRY(addr, val, mask)));
   }
 
+  void
+  OrecELA::local_write(STM_WRITE_SIG(tx,addr,val,mask))
+  {
+      *addr = val;
+  }
+
   /**
    *  OrecELA unwinder:
    *
@@ -260,14 +267,14 @@ namespace {
    *    consistent.
    */
   stm::scope_t*
-  OrecELA::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  OrecELA::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Perform writes to the exception object if there were any... taking the
       // branch overhead without concern because we're not worried about
       // rollback overheads.
-      STM_ROLLBACK(tx->writes, except, len);
+      STM_ROLLBACK(tx->writes, upper_stack_bound, except, len);
 
       // release locks and restore version numbers
       foreach (OrecList, i, tx->locks)
@@ -293,7 +300,7 @@ namespace {
    *  OrecELA in-flight irrevocability: use abort-and-restart
    */
   bool
-  OrecELA::irrevoc(TxThread* tx)
+  OrecELA::irrevoc(STM_IRREVOC_SIG(tx,upper_stack_bound))
   {
       return false;
   }
@@ -354,6 +361,7 @@ namespace stm {
       stm::stms[OrecELA].commit   = ::OrecELA::commit_ro;
       stm::stms[OrecELA].read     = ::OrecELA::read_ro;
       stm::stms[OrecELA].write    = ::OrecELA::write_ro;
+      stms[OrecELA].local_write     = ::OrecELA::local_write;
       stm::stms[OrecELA].rollback = ::OrecELA::rollback;
       stm::stms[OrecELA].irrevoc  = ::OrecELA::irrevoc;
       stm::stms[OrecELA].switcher = ::OrecELA::onSwitchTo;

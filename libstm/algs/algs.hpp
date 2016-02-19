@@ -22,6 +22,7 @@
 #else
 #include <cstdio>
 #endif
+#include <assert.h>
 
 #include "stm/metadata.hpp"
 #include "stm/txthread.hpp"
@@ -39,13 +40,16 @@ namespace stm
       OrecELA, TMLLazy, NOrecPrio, OrecFair, CToken, CTokenTurbo, Pipeline,
       BitLazy, LLT, TLI, ByteEager, MCS, Serial, BitEager, ByteLazy,
       ByEAR, OrecEagerRedo, ByteEagerRedo, BitEagerRedo,
-      RingALA, Nano, Swiss,
-
-      ByEAUBackoff, ByEAUFCM, ByEAUNoBackoff, ByEAUHour,
-      OrEAUBackoff, OrEAUFCM, OrEAUNoBackoff, OrEAUHour,
+      RingALA, Nano, Swiss, SwissHT,
+      ByEAU, ByEAUFCM, ByEAUHA, ByEAUHour,
+      OrEAU, OrEAUFCM, OrEAUHA, OrEAUHour,
       OrecEager, OrecEagerHour, OrecEagerBackoff, OrecEagerHB,
       OrecLazy,  OrecLazyHour,  OrecLazyBackoff,  OrecLazyHB,
-      NOrec,     NOrecHour,     NOrecBackoff,     NOrecHB,
+	  NOrec,     NOrecHour,     NOrecBackoff,     NOrecHB,
+	  NOrecno,     NOrecnoHour,     NOrecnoBackoff,     NOrecnoHB,
+	  NOrecHT,   NOrecHTHour,   NOrecHTBackoff,   NOrecHTHB,
+      NOrecHTO,   NOrecHTOHour,   NOrecHTOBackoff,   NOrecHTOHB,
+      NOrecHTBOT,   NOrecHTBOTHour,   NOrecHTBOTBackoff,   NOrecHTBOTHB,
       // ProfileTM support.  These are not true STMs
       ProfileTM, ProfileAppAvg, ProfileAppMax, ProfileAppAll,
       // end with a distinct value
@@ -106,21 +110,29 @@ namespace stm
        * starts
        */
       bool  (*TM_FASTCALL begin) (TxThread*);
-      void  (*TM_FASTCALL commit)(TxThread*);
+      void  (*TM_FASTCALL commit)(STM_COMMIT_SIG(,));
       void* (*TM_FASTCALL read)  (STM_READ_SIG(,,));
       void  (*TM_FASTCALL write) (STM_WRITE_SIG(,,,));
+      void  (*TM_FASTCALL local_write) (STM_WRITE_SIG(,,,));
 
       /**
        * rolls the transaction back without unwinding, returns the scope (which
        * is set to null during rollback)
        */
-      scope_t* (* rollback)(STM_ROLLBACK_SIG(,,));
+      scope_t* (* rollback)(STM_ROLLBACK_SIG(,,,));
 
       /*** the restart, retry, and irrevoc methods to use */
-      bool  (* irrevoc)(TxThread*);
+      bool  (* irrevoc)(STM_IRREVOC_SIG(,));
 
       /*** the code to run when switching to this alg */
       void  (* switcher) ();
+
+      void* (*helper) (void*);
+
+      //helper thread commit
+      uintptr_t (*commit_ht)(STM_COMMIT_SIG(,));
+      void (*end)(STM_COMMIT_SIG(,));
+      int helperThreads;
 
       /**
        *  bool flag to indicate if an algorithm is privatization safe
@@ -131,7 +143,7 @@ namespace stm
       bool privatization_safe;
 
       /*** simple ctor, because a NULL name is a bad thing */
-      alg_t() : name("") { }
+      alg_t() : name("") {}
   };
 
   /**
@@ -223,7 +235,7 @@ namespace stm
       bits = (bits > BACKOFF_MAX) ? BACKOFF_MAX : bits;
       // get a random amount of time to wait, bounded by an exponentially
       // increasing limit
-      int32_t delay = rand_r(&tx->seed);
+      int32_t delay = rand_r_32(&tx->seed);
       delay &= ((1 << bits)-1);
       // wait until at least that many ns have passed
       unsigned long long start = getElapsedTime();
@@ -236,13 +248,15 @@ namespace stm
 
   typedef TM_FASTCALL void* (*ReadBarrier)(STM_READ_SIG(,,));
   typedef TM_FASTCALL void (*WriteBarrier)(STM_WRITE_SIG(,,,));
-  typedef TM_FASTCALL void (*CommitBarrier)(TxThread*);
+  typedef TM_FASTCALL void (*CommitBarrier)(STM_COMMIT_SIG(,));
 
   inline void OnReadWriteCommit(TxThread* tx, ReadBarrier read_ro,
                                 WriteBarrier write_ro, CommitBarrier commit_ro)
   {
-      tx->allocator.onTxCommit();
+      //tx->allocator.onTxCommit();
       tx->abort_hist.onCommit(tx->consec_aborts);
+      if(tx->consec_aborts)
+    	  tx->unique_aborts++;
       tx->consec_aborts = 0;
       ++tx->num_commits;
       tx->tmread = read_ro;
@@ -253,8 +267,10 @@ namespace stm
 
   inline void OnReadWriteCommit(TxThread* tx)
   {
-      tx->allocator.onTxCommit();
+      //tx->allocator.onTxCommit();
       tx->abort_hist.onCommit(tx->consec_aborts);
+      if(tx->consec_aborts)
+          	  tx->unique_aborts++;
       tx->consec_aborts = 0;
       ++tx->num_commits;
       Trigger::onCommitSTM(tx);
@@ -262,8 +278,10 @@ namespace stm
 
   inline void OnReadOnlyCommit(TxThread* tx)
   {
-      tx->allocator.onTxCommit();
+      //tx->allocator.onTxCommit();
       tx->abort_hist.onCommit(tx->consec_aborts);
+      if(tx->consec_aborts)
+          	  tx->unique_aborts++;
       tx->consec_aborts = 0;
       ++tx->num_ro;
       Trigger::onCommitSTM(tx);
@@ -300,7 +318,7 @@ namespace stm
   inline scope_t* PostRollback(TxThread* tx, ReadBarrier read_ro,
                                WriteBarrier write_ro, CommitBarrier commit_ro)
   {
-      tx->allocator.onTxAbort();
+      //tx->allocator.onTxAbort();
       tx->nesting_depth = 0;
       tx->tmread = read_ro;
       tx->tmwrite = write_ro;
@@ -313,7 +331,7 @@ namespace stm
 
   inline scope_t* PostRollback(TxThread* tx)
   {
-      tx->allocator.onTxAbort();
+      //tx->allocator.onTxAbort();
       tx->nesting_depth = 0;
       Trigger::onAbort(tx);
       scope_t* scope = tx->scope;

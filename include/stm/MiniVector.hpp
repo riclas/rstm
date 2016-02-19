@@ -31,7 +31,10 @@ namespace stm
   {
       unsigned long m_cap;            // current vector capacity
       unsigned long m_size;           // current number of used elements
+      unsigned long next_index;       // next index to access
       T* m_elements;                  // the actual elements in the vector
+      T* to_free;                     // a list of elements waiting to be freed
+      //char pad[CACHELINE_BYTES];
 
       /*** double the size of the minivector */
       void expand();
@@ -40,7 +43,7 @@ namespace stm
 
       /*** Construct a minivector with a default size */
       MiniVector(const unsigned long capacity)
-          : m_cap(capacity), m_size(0),
+          : m_cap(capacity), m_size(0), next_index(-1),
             m_elements(static_cast<T*>(malloc(sizeof(T)*m_cap)))
       {
           assert(m_elements);
@@ -84,19 +87,16 @@ namespace stm
       /*** iterator to the end of the array */
       TM_INLINE iterator end() const { return m_elements + m_size; }
 
+      TM_INLINE iterator getNext() {
+    	  if(++next_index == m_size){
+    		  next_index = -1;
+    		  return NULL;
+    	  }
+
+    	  return &m_elements[next_index];
+      }
   }; // class MiniVector
 
-  /*** double the size of a minivector */
-  template <class T>
-  void MiniVector<T>::expand()
-  {
-      T* temp = m_elements;
-      m_cap *= 2;
-      m_elements = static_cast<T*>(malloc(sizeof(T) * m_cap));
-      assert(m_elements);
-      memcpy(m_elements, temp, sizeof(T)*m_size);
-      free(temp);
-  }
 } // stm
 
 #endif // MINIVECTOR_HPP__

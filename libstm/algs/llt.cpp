@@ -46,11 +46,12 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void local_write(STM_WRITE_SIG(,,,));
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
       static NOINLINE void validate(TxThread*);
   };
@@ -71,7 +72,7 @@ namespace {
    *  LLT commit (read-only):
    */
   void
-  LLT::commit_ro(TxThread* tx)
+  LLT::commit_ro(STM_COMMIT_SIG(tx,))
   {
       // read-only, so just reset lists
       tx->r_orecs.reset();
@@ -85,7 +86,7 @@ namespace {
    *    validations.
    */
   void
-  LLT::commit_rw(TxThread* tx)
+  LLT::commit_rw(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // acquire locks
       foreach (WriteSet, i, tx->writes) {
@@ -116,7 +117,7 @@ namespace {
           validate(tx);
 
       // run the redo log
-      tx->writes.writeback();
+      tx->writes.writeback(STM_WHEN_PROTECT_STACK(upper_stack_bound));
 
       // release locks
       CFENCE;
@@ -213,18 +214,24 @@ namespace {
       tx->writes.insert(WriteSetEntry(STM_WRITE_SET_ENTRY(addr, val, mask)));
   }
 
+  void
+  LLT::local_write(STM_WRITE_SIG(tx,addr,val,mask))
+  {
+      *addr = val;
+  }
+
   /**
    *  LLT unwinder:
    */
   stm::scope_t*
-  LLT::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  LLT::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Perform writes to the exception object if there were any... taking the
       // branch overhead without concern because we're not worried about
       // rollback overheads.
-      STM_ROLLBACK(tx->writes, except, len);
+      STM_ROLLBACK(tx->writes, upper_stack_bound, except, len);
 
       // release the locks and restore version numbers
       foreach (OrecList, i, tx->locks)
@@ -241,7 +248,7 @@ namespace {
    *  LLT in-flight irrevocability:
    */
   bool
-  LLT::irrevoc(TxThread*)
+  LLT::irrevoc(STM_IRREVOC_SIG(,))
   {
       return false;
   }
@@ -290,6 +297,7 @@ namespace stm {
       stms[LLT].commit    = ::LLT::commit_ro;
       stms[LLT].read      = ::LLT::read_ro;
       stms[LLT].write     = ::LLT::write_ro;
+      stms[LLT].local_write     = ::LLT::local_write;
       stms[LLT].rollback  = ::LLT::rollback;
       stms[LLT].irrevoc   = ::LLT::irrevoc;
       stms[LLT].switcher  = ::LLT::onSwitchTo;

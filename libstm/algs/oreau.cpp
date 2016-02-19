@@ -48,11 +48,11 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
       static NOINLINE void validate(TxThread*);
   };
@@ -98,7 +98,7 @@ namespace {
    */
   template <class CM>
   void
-  OrEAU_Generic<CM>::commit_ro(TxThread* tx)
+  OrEAU_Generic<CM>::commit_ro(STM_COMMIT_SIG(tx,))
   {
       CM::onCommit(tx);
       tx->r_orecs.reset();
@@ -110,7 +110,7 @@ namespace {
    */
   template <class CM>
   void
-  OrEAU_Generic<CM>::commit_rw(TxThread* tx)
+  OrEAU_Generic<CM>::commit_rw(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // we're a writer, so increment the global timestamp
       tx->end_time = 1 + faiptr(&timestamp.val);
@@ -171,7 +171,7 @@ namespace {
           // abort the owner if locked
           if (ivt.fields.lock) {
               if (CM::mayKill(tx, ivt.fields.id - 1))
-                  threads[ivt.fields.id-1]->alive = TX_ABORTED;
+                  threads[ivt.fields.id-1].data->alive = TX_ABORTED;
               else
                   tx->tmabort(tx);
           }
@@ -222,7 +222,7 @@ namespace {
           // abort the owner if locked
           if (ivt.fields.lock) {
               if (CM::mayKill(tx, ivt.fields.id - 1))
-                  threads[ivt.fields.id-1]->alive = TX_ABORTED;
+                  threads[ivt.fields.id-1].data->alive = TX_ABORTED;
               else
                   tx->tmabort(tx);
           }
@@ -270,7 +270,7 @@ namespace {
           // abort the owner if locked
           if (ivt.fields.lock) {
               if (CM::mayKill(tx, ivt.fields.id - 1))
-                  threads[ivt.fields.id-1]->alive = TX_ABORTED;
+                  threads[ivt.fields.id-1].data->alive = TX_ABORTED;
               else
                   tx->tmabort(tx);
           }
@@ -323,7 +323,7 @@ namespace {
           // abort owner if locked
           if (ivt.fields.lock) {
               if (CM::mayKill(tx, ivt.fields.id - 1))
-                  threads[ivt.fields.id-1]->alive = TX_ABORTED;
+                  threads[ivt.fields.id-1].data->alive = TX_ABORTED;
               else
                   tx->tmabort(tx);
           }
@@ -344,11 +344,11 @@ namespace {
    */
   template <class CM>
   stm::scope_t*
-  OrEAU_Generic<CM>::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  OrEAU_Generic<CM>::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
       // run the undo log
-      STM_UNDO(tx->undo_log, except, len);
+      STM_UNDO(tx->undo_log, upper_stack_bound, except, len);
 
       // release the locks and bump version numbers
       uintptr_t max = 0;
@@ -384,7 +384,7 @@ namespace {
    */
   template <class CM>
   bool
-  OrEAU_Generic<CM>::irrevoc(TxThread* tx)
+  OrEAU_Generic<CM>::irrevoc(STM_IRREVOC_SIG(tx,upper_stack_bound))
   {
       return false;
   }
@@ -426,9 +426,9 @@ namespace {
 // Register ByEAU initializer functions. Do this as declaratively as
 // possible. Remember that they need to be in the stm:: namespace.
 #define FOREACH_OREAU(MACRO)                    \
-    MACRO(OrEAUBackoff, BackoffCM)                     \
+    MACRO(OrEAU, BackoffCM)                     \
     MACRO(OrEAUFCM, FCM)                        \
-    MACRO(OrEAUNoBackoff, HyperAggressiveCM)           \
+    MACRO(OrEAUHA, HyperAggressiveCM)           \
     MACRO(OrEAUHour, HourglassCM)
 
 #define INIT_OREAU(ID, CM)                      \

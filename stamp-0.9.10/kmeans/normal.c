@@ -134,7 +134,7 @@ work (void* argPtr)
     float** new_centers     = args->new_centers;
     float delta = 0.0;
     int index;
-    int i;
+    long i;
     int j;
     int start;
     int stop;
@@ -146,7 +146,7 @@ work (void* argPtr)
 
     while (start < npoints) {
         stop = (((start + CHUNK) < npoints) ? (start + CHUNK) : npoints);
-        for (i = start; i < stop; i++) {
+        for (i = start; i < stop; TMHT_LOCAL_WRITE(i, i+1)) {
 
             index = common_findNearestPoint(feature[i],
                                             nfeatures,

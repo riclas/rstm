@@ -132,7 +132,7 @@ extern "C" void catch_SIGALRM(int) {
 void
 barrier(uint32_t which)
 {
-    static volatile uint32_t barriers[16] = {0};
+    static volatile uint32_t barriers[64] = {0};
     CFENCE;
     fai32(&barriers[which]);
     while (barriers[which] != CFG.threads) { }
@@ -212,7 +212,7 @@ run_wrapper(void* i)
 int main(int argc, char** argv) {
     parseargs(argc, argv);
     bench_reparse();
-    TM_SYS_INIT();
+    TM_SYS_INIT(CFG.threads);
     TM_THREAD_INIT();
     bench_init();
 
@@ -220,15 +220,18 @@ int main(int argc, char** argv) {
     pthread_t tid[256];
 
     // set up configuration structs for the threads we'll create
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
-    for (uintptr_t i = 0; i < CFG.threads; i++)
-        args[i] = reinterpret_cast<void*>(i);
+    for (uint32_t i = 0; i < CFG.threads; i++)
+        args[i] = (void*)i;
 
     // actually create the threads
-    for (uint32_t j = 1; j < CFG.threads; j++)
-        pthread_create(&tid[j], &attr, &run_wrapper, args[j]);
+    for (uint32_t j = 1; j < CFG.threads; j++){
+    	pthread_attr_t attr;
+
+    	pthread_attr_init(&attr);
+		pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
+
+    	pthread_create(&tid[j], &attr, &run_wrapper, args[j]);
+    }
 
     // all of the other threads should be queued up, waiting to run the
     // benchmark, but they can't until this thread starts the benchmark

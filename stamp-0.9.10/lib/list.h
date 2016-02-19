@@ -147,6 +147,14 @@ TM_CALLABLE
 void*
 TMlist_iter_next (TM_ARGDECL  list_iter_t* itPtr, list_t* listPtr);
 
+/* =============================================================================
+ * TMHTlist_iter_next
+ * =============================================================================
+ */
+TM_CALLABLE
+void*
+TMHTlist_iter_next (TM_ARGDECL  list_iter_t* itPtr, list_t* listPtr);
+
 
 /* =============================================================================
  * list_alloc
@@ -355,6 +363,7 @@ Plist_clear (list_t* listPtr);
 #define TMLIST_ITER_RESET(it, list)     TMlist_iter_reset(TM_ARG  it, list)
 #define TMLIST_ITER_HASNEXT(it, list)   TMlist_iter_hasNext(TM_ARG  it, list)
 #define TMLIST_ITER_NEXT(it, list)      TMlist_iter_next(TM_ARG  it, list)
+#define TMHTLIST_ITER_NEXT(it, list)      TMHTlist_iter_next(TM_ARG  it, list)
 #define TMLIST_ALLOC(cmp)               TMlist_alloc(TM_ARG  cmp)
 #define TMLIST_FREE(list)               TMlist_free(TM_ARG  list)
 #define TMLIST_GETSIZE(list)            TMlist_getSize(TM_ARG  list)

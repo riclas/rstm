@@ -411,7 +411,7 @@ router_solve (void* argPtr)
     TM_END();
 
     if (success) {
-      bool_t status = PVECTOR_PUSHBACK(myPathVectorPtr,
+      bool_t status = TM_PVECTOR_PUSHBACK(myPathVectorPtr,
                                        (void*)pointVectorPtr);
       assert(status);
     }

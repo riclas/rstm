@@ -62,11 +62,11 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
   };
 
@@ -112,7 +112,7 @@ namespace {
    */
   template <class CM>
   void
-  ByEAU_Generic<CM>::commit_ro(TxThread* tx)
+  ByEAU_Generic<CM>::commit_ro(STM_COMMIT_SIG(tx,))
   {
       // read-only... release read locks
       foreach (ByteLockList, i, tx->r_bytelocks)
@@ -134,7 +134,7 @@ namespace {
    */
   template <class CM>
   void
-  ByEAU_Generic<CM>::commit_rw(TxThread* tx)
+  ByEAU_Generic<CM>::commit_rw(STM_COMMIT_SIG(tx,))
   {
       // release write locks, then read locks
       foreach (ByteLockList, i, tx->w_bytelocks)
@@ -174,7 +174,7 @@ namespace {
       while (uint32_t owner = lock->owner) {
           // only abort owner if CM says it's ok
           if (CM::mayKill(tx, owner - 1))
-              threads[owner-1]->alive = TX_ABORTED;
+              threads[owner-1].data->alive = TX_ABORTED;
           else
               tx->tmabort(tx);
           // NB: must have liveness check in the spin, since we may have read
@@ -216,7 +216,7 @@ namespace {
           // abort the owner and wait until it cleans up
           while (uint32_t owner = lock->owner) {
               if (CM::mayKill(tx, owner - 1))
-                  threads[owner-1]->alive = TX_ABORTED;
+                  threads[owner-1].data->alive = TX_ABORTED;
               else
                   tx->tmabort(tx);
               // NB: again, need liveness check
@@ -251,7 +251,7 @@ namespace {
           if (uint32_t owner = lock->owner)
               // must get permission from CM, else abort self to prevent deadlock
               if (CM::mayKill(tx, owner - 1))
-                  threads[owner-1]->alive = TX_ABORTED;
+                  threads[owner-1].data->alive = TX_ABORTED;
               else
                   tx->tmabort(tx);
           // try to get ownership
@@ -271,7 +271,7 @@ namespace {
           if (lock->reader[i] != 0) {
               // again, only abort readers with CM permission, else abort self
               if (CM::mayKill(tx, i))
-                  threads[i]->alive = TX_ABORTED;
+                  threads[i].data->alive = TX_ABORTED;
               else
                   tx->tmabort(tx);
           }
@@ -304,7 +304,7 @@ namespace {
               if (uint32_t owner = lock->owner)
                   // need CM permission
                   if (CM::mayKill(tx, owner-1))
-                      threads[owner-1]->alive = TX_ABORTED;
+                      threads[owner-1].data->alive = TX_ABORTED;
                   else
                       tx->tmabort(tx);
               // try to get ownership
@@ -323,7 +323,7 @@ namespace {
               if (lock->reader[i] != 0) {
                   // get permission to abort reader
                   if (CM::mayKill(tx, i))
-                      threads[i]->alive = TX_ABORTED;
+                      threads[i].data->alive = TX_ABORTED;
                   else
                       tx->tmabort(tx);
               }
@@ -346,13 +346,13 @@ namespace {
    */
   template <class CM>
   stm::scope_t*
-  ByEAU_Generic<CM>::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  ByEAU_Generic<CM>::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Undo the writes, while at the same time watching out for the exception
       // object.
-      STM_UNDO(tx->undo_log, except, len);
+      STM_UNDO(tx->undo_log, upper_stack_bound, except, len);
 
       // release write locks, then read locks
       foreach (ByteLockList, j, tx->w_bytelocks)
@@ -375,7 +375,7 @@ namespace {
    */
   template <class CM>
   bool
-  ByEAU_Generic<CM>::irrevoc(TxThread*)
+  ByEAU_Generic<CM>::irrevoc(STM_IRREVOC_SIG(,))
   {
       return false;
   }
@@ -394,8 +394,8 @@ namespace {
 // Register ByEAU initializer functions. Do this as declaratively as
 // possible. Remember that they need to be in the stm:: namespace.
 #define FOREACH_BYEAU(MACRO)                    \
-    MACRO(ByEAUBackoff, BackoffCM)                     \
-    MACRO(ByEAUNoBackoff, HyperAggressiveCM)           \
+    MACRO(ByEAU, BackoffCM)                     \
+    MACRO(ByEAUHA, HyperAggressiveCM)           \
     MACRO(ByEAUFCM, FCM)                        \
     MACRO(ByEAUHour, HourglassCM)
 

@@ -151,6 +151,16 @@ Pvector_pushBack (vector_t* vectorPtr, void* dataPtr);
 
 
 /* =============================================================================
+ * Pvector_pushBack with TM local write
+ * -- Returns FALSE if fail, else TRUE
+ * =============================================================================
+ */
+TM_CALLABLE
+bool_t
+TM_Pvector_pushBack (TM_ARGDECL vector_t* vectorPtr, void* dataPtr);
+
+
+/* =============================================================================
  * vector_popBack
  * -- Returns NULL if fail, else returns last element
  * =============================================================================
@@ -173,6 +183,8 @@ vector_getSize (vector_t* vectorPtr);
  */
 void
 vector_clear (vector_t* vectorPtr);
+void
+TM_vector_clear (TM_ARGDECL vector_t* vectorPtr);
 
 
 /* =============================================================================
@@ -202,10 +214,12 @@ Pvector_copy (vector_t* dstVectorPtr, vector_t* srcVectorPtr);
 #define PVECTOR_ALLOC(n)            Pvector_alloc(n)
 #define PVECTOR_FREE(v)             Pvector_free(v)
 #define PVECTOR_PUSHBACK(v, data)   Pvector_pushBack(v, data)
+#define TM_PVECTOR_PUSHBACK(v, data)   TM_Pvector_pushBack(TM_ARG v, data)
 #define PVECTOR_POPBACK(v)          vector_popBack(v)
 #define PVECTOR_AT(v, i)            vector_at(v, i)
 #define PVECTOR_GETSIZE(v)          vector_getSize(v)
 #define PVECTOR_CLEAR(v)            vector_clear(v)
+#define TM_PVECTOR_CLEAR(v)         TM_vector_clear(TM_ARG v)
 #define PVECTOR_SORT(v, cmp)        vector_sort(v, cmp)
 #define PVECTOR_COPY(dst, src)      Pvector_copy(dst, src)
 

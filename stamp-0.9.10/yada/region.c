@@ -415,6 +415,15 @@ Pregion_clearBad (region_t* regionPtr)
   PVECTOR_CLEAR(regionPtr->badVectorPtr);
 }
 
+/* =============================================================================
+ * TMHT Pregion_clearBad
+ * =============================================================================
+ */
+void
+TM_Pregion_clearBad (TM_ARGDECL  region_t* regionPtr)
+{
+  TM_PVECTOR_CLEAR(regionPtr->badVectorPtr);
+}
 
 /* =============================================================================
  * TMregion_transferBad

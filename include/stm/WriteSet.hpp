@@ -32,8 +32,9 @@ namespace stm
 {
   /**
    *  The WriteSet implementation is heavily influenced by the configuration
-   *  parameters, STM_WS_(WORD/BYTE)LOG, and STM_ABORT_ON_THROW. This means
-   *  that much of this file is ifdeffed accordingly.
+   *  parameters, STM_WS_(WORD/BYTE)LOG, STM_PROTECT_STACK, and
+   *  STM_ABORT_ON_THROW. This means that much of this file is ifdeffed
+   *  accordingly.
    */
 
   /**
@@ -147,7 +148,6 @@ namespace stm
           if (__builtin_expect(rhs.mask == (uintptr_t)~0x0, true)) {
               val = rhs.val;
               mask = rhs.mask;
-              return;
           }
 
           // bit twiddling for awkward intersection, avoids looping
@@ -164,13 +164,13 @@ namespace stm
        *  Check to see if the entry is completely contained within the given
        *  address range. We have some preconditions here w.r.t. alignment and
        *  size of the range. It has to be at least word aligned and word
-       *  sized. This is currently only used with stack addresses, so we don't
-       *  include asserts because we don't want to pay for them in the common
-       *  case writeback loop.
+       *  sized. This is currently only used with stack addresses, so we
+       *  don't include asserts because we don't want to pay for them in the
+       *  common case writeback loop.
        *
        *  The byte-logging writeset can actually accommodate awkward
-       *  intersections here using the mask, but we're not going to worry about
-       *  that given the expected size/alignment of the range.
+       *  intersections here using the mask, but we're not going to worry
+       *  about that given the expected size/alignment of the range.
        */
       bool filter(void** lower, void** upper)
       {
@@ -204,9 +204,10 @@ namespace stm
       }
 
       /**
-       *  Called during the rollback loop in order to write out buffered writes
-       *  to an exception object (represented by the address range). We don't
-       *  assume anything about the alignment or size of the exception object.
+       *  Called during the rollback loop in order to write out buffered
+       *  writes to an exception object (represented by the address
+       *  range). We don't assume anything about the alignment or size of the
+       *  exception object.
        */
       void rollback(void** lower, void** upper)
       {
@@ -267,7 +268,7 @@ namespace stm
       WriteSetEntry* list;                        // the array of actual data
       size_t   capacity;                          // max array size
       size_t   lsize;                             // elements in the array
-
+      char pad[CACHELINE_BYTES - sizeof(size_t)*4 - sizeof(index_t*) - sizeof(WriteSetEntry*)];
 
       /**
        *  hash function is straight from CLRS (that's where the magic
@@ -346,24 +347,30 @@ namespace stm
           }
 
 #if defined(STM_WS_BYTELOG)
-          log.mask = 0x0; // report that there were no intersecting bytes
+          log.mask = 0x0;
 #endif
           return false;
       }
 
       /**
-       *  Support for abort-on-throw rollback tricky.  We might need to write
-       *  to an exception object.
+       *  Support for abort-on-throw and stack protection makes rollback
+       *  tricky.  We might need to write to an exception object, and/or
+       *  filter writeback to protect the stack.
        *
        *  NB: We use a macro to hide the fact that some rollback calls are
        *      really simple.  This gets called by ~30 STM implementations
        */
 #if !defined (STM_ABORT_ON_THROW)
       void rollback() { }
-#   define STM_ROLLBACK(log, exception, len) log.rollback()
+#   define STM_ROLLBACK(log, stack, exception, len) log.rollback()
 #else
+#   if !defined(STM_PROTECT_STACK)
       void rollback(void**, size_t);
-#   define STM_ROLLBACK(log, exception, len) log.rollback(exception, len)
+#   define STM_ROLLBACK(log, stack, exception, len) log.rollback(exception, len)
+#   else
+      void rollback(void**, void**, size_t);
+#   define STM_ROLLBACK(log, stack, exception, len) log.rollback(stack, exception, len)
+#   endif
 #endif
 
       /**
@@ -371,10 +378,26 @@ namespace stm
        *  modifications to lots of STMs when we need to change writeback for a
        *  particular compiler.
        */
+#if !defined(STM_PROTECT_STACK)
       TM_INLINE void writeback()
       {
+#else
+      TM_INLINE void writeback(void** upper_stack_bound)
+      {
+#endif
           for (iterator i = begin(), e = end(); i != e; ++i)
+          {
+#ifdef STM_PROTECT_STACK
+              // See if this falls into the protected stack region, and avoid
+              // the writeback if that is the case. The filter call will update
+              // a byte-log's mask if there is an awkward intersection.
+              //
+              void* top_of_stack;
+              if (i->filter(&top_of_stack, upper_stack_bound))
+                  continue;
+#endif
               i->writeback();
+          }
       }
 
       /**
@@ -444,6 +467,8 @@ namespace stm
       iterator begin() const { return list; }
       iterator end()   const { return list + lsize; }
   };
+
 }
+
 
 #endif // WRITESET_HPP__

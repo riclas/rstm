@@ -124,6 +124,8 @@ TMregion_refine (TM_ARGDECL
  */
 void
 Pregion_clearBad (region_t* regionPtr);
+void
+TM_Pregion_clearBad (TM_ARGDECL region_t* regionPtr);
 
 
 /* =============================================================================
@@ -137,6 +139,7 @@ TMregion_transferBad (TM_ARGDECL  region_t* regionPtr, heap_t* workHeapPtr);
 #define PREGION_ALLOC()                 Pregion_alloc()
 #define PREGION_FREE(r)                 Pregion_free(r)
 #define PREGION_CLEARBAD(r)             Pregion_clearBad(r)
+#define TM_PREGION_CLEARBAD(r)          TM_Pregion_clearBad(TM_ARG  r)
 #define TMREGION_REFINE(r, e, m)        TMregion_refine(TM_ARG  r, e, m)
 #define TMREGION_TRANSFERBAD(r, q)      TMregion_transferBad(TM_ARG  r, q)
 

@@ -10,6 +10,7 @@
 
 #include "libitm.h"
 #include "Transaction.h"
+#include "StackProtection.h"
 #include "stm/txthread.hpp"
 
 inline _ITM_transaction::Node*
@@ -26,7 +27,7 @@ _ITM_transaction::leave() {
 /// commit. If the library commit call actually returns, then there weren't any
 /// conflicts. If it didn't return then everything was handled by tmabort.
 inline void
-_ITM_transaction::commit() {
+_ITM_transaction::commit(void** protected_stack_lower_bound) {
     // This code was pilfered from <stm/api/library.hpp>.
 
     // Don't commit anything if we're nested... just exit this scope, this
@@ -38,15 +39,11 @@ _ITM_transaction::commit() {
     if (thread_handle_.nesting_depth == 1)
     {
         // dispatch to the appropriate end function
-        thread_handle_.tmcommit(&thread_handle_);
+        thread_handle_.tmcommit(&thread_handle_, protected_stack_lower_bound);
 
         // // zero scope (to indicate "not in tx")
         CFENCE;
         thread_handle_.scope = NULL;
-
-        // clear the high/low stack marks.
-        thread_handle_.stack_high = 0x0;
-        thread_handle_.stack_low = (void**)~0x0;
 
         // record start of nontransactional time, this misses the itm2stm commit
         // and leave time for the outermost scope, but I think we're ok.
@@ -64,7 +61,7 @@ _ITM_transaction::commit() {
 /// Supports the ITM tryCommit operation. There isn't currently an analog to
 /// this in the rstm library, so we'll fail for now.
 inline bool
-_ITM_transaction::tryCommit() {
+_ITM_transaction::tryCommit(void**) {
     assert(false && "tryCommit not yet implemented.");
     // if (rstm_try_commit)
     inner()->commit();
@@ -86,12 +83,12 @@ _ITM_transaction::commitToId(_ITM_transactionId_t id) {
 
 void
 _ITM_commitTransaction(_ITM_transaction* td, const _ITM_srcLocation*) {
-    td->commit();
+    td->commit(COMPUTE_PROTECTED_STACK_ADDRESS_ITM_FASTCALL(2));
 }
 
 bool
 _ITM_tryCommitTransaction(_ITM_transaction* td, const _ITM_srcLocation*) {
-    return td->tryCommit();
+    return td->tryCommit(COMPUTE_PROTECTED_STACK_ADDRESS_ITM_FASTCALL(2));
 }
 
 void

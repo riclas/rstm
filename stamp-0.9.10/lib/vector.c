@@ -226,6 +226,36 @@ Pvector_pushBack (vector_t* vectorPtr, void* dataPtr)
     return TRUE;
 }
 
+/* =============================================================================
+ * Pvector_pushBack with TM local write
+ * -- Returns FALSE if fail, else TRUE
+ * =============================================================================
+ */
+TM_CALLABLE
+bool_t
+TM_Pvector_pushBack (TM_ARGDECL vector_t* vectorPtr, void* dataPtr)
+{
+    if (vectorPtr->size == vectorPtr->capacity) {
+        long i;
+        long newCapacity = vectorPtr->capacity * 2;
+        void** newElements = (void**)P_MALLOC(newCapacity * sizeof(void*));
+        if (newElements == NULL) {
+            return FALSE;
+        }
+        vectorPtr->capacity = newCapacity;
+        for (i = 0; i < vectorPtr->size; i++) {
+            newElements[i] = vectorPtr->elements[i];
+        }
+        P_FREE(vectorPtr->elements);
+        vectorPtr->elements = newElements;
+    }
+
+    vectorPtr->elements[vectorPtr->size] = dataPtr;
+    TMHT_LOCAL_WRITE(vectorPtr->size, vectorPtr->size+1);
+
+    return TRUE;
+}
+
 
 /* =============================================================================
  * vector_popBack
@@ -262,6 +292,16 @@ void
 vector_clear (vector_t* vectorPtr)
 {
     vectorPtr->size = 0;
+}
+
+/* =============================================================================
+ * TMHT vector_clear
+ * =============================================================================
+ */
+void
+TM_vector_clear (TM_ARGDECL vector_t* vectorPtr)
+{
+    TMHT_LOCAL_WRITE(vectorPtr->size, (long int)0);
 }
 
 

@@ -32,6 +32,14 @@ namespace stm
    */
   static const unsigned MAX_THREADS = 256;
 
+  template<typename T>
+  struct cache_line_storage {
+     __attribute__((aligned(CACHELINE_BYTES))) T data;
+     char pad[ CACHELINE_BYTES > sizeof(T)
+          ? CACHELINE_BYTES - sizeof(T)
+          : 1 ];
+  };
+
   /**
    *  Forward declare the TxThread type, so we can use it in some of our
    *  metadata types

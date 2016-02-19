@@ -41,11 +41,11 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
       static NOINLINE void check_inflight(TxThread* tx, uintptr_t my_index);
   };
@@ -70,7 +70,7 @@ namespace {
    *  RingSW commit (read-only):
    */
   void
-  RingSW::commit_ro(TxThread* tx)
+  RingSW::commit_ro(STM_COMMIT_SIG(tx,))
   {
       // clear the filter and we are done
       tx->rf->clear();
@@ -87,7 +87,7 @@ namespace {
    *    world, while the logically committed transaction replays its writes.
    */
   void
-  RingSW::commit_rw(TxThread* tx)
+  RingSW::commit_rw(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // get a commit time, but only succeed in the CAS if this transaction
       // is still valid
@@ -125,7 +125,7 @@ namespace {
       last_init.val = commit_time + 1;
 
       // we're committed... run redo log, then mark ring entry COMPLETE
-      tx->writes.writeback();
+      tx->writes.writeback(STM_WHEN_PROTECT_STACK(upper_stack_bound));
       last_complete.val = commit_time + 1;
 
       // clean up
@@ -195,14 +195,14 @@ namespace {
    *  RingSW unwinder:
    */
   stm::scope_t*
-  RingSW::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  RingSW::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Perform writes to the exception object if there were any... taking the
       // branch overhead without concern because we're not worried about
       // rollback overheads.
-      STM_ROLLBACK(tx->writes, except, len);
+      STM_ROLLBACK(tx->writes, upper_stack_bound, except, len);
 
       // reset filters and lists
       tx->rf->clear();
@@ -217,7 +217,7 @@ namespace {
    *  RingSW in-flight irrevocability: use abort-and-restart
    */
   bool
-  RingSW::irrevoc(TxThread* tx)
+  RingSW::irrevoc(STM_IRREVOC_SIG(tx,upper_stack_bound))
   {
       return false;
   }

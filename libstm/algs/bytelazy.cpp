@@ -41,11 +41,11 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
   };
 
@@ -65,7 +65,7 @@ namespace {
    *  ByteLazy commit (read-only):
    */
   void
-  ByteLazy::commit_ro(TxThread* tx)
+  ByteLazy::commit_ro(STM_COMMIT_SIG(tx,))
   {
       // were there remote aborts?
       if (!tx->alive)
@@ -91,7 +91,7 @@ namespace {
    *    release locks, and clean up.
    */
   void
-  ByteLazy::commit_rw(TxThread* tx)
+  ByteLazy::commit_rw(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // try to lock every location in the write set
       unsigned char accumulator[60] = {0};
@@ -126,7 +126,7 @@ namespace {
       // kill the readers
       for (unsigned char c = 0; c < 60; ++c)
           if (accumulator[c] == 1)
-              cas32(&threads[c]->alive, 1u, 0u);
+              cas32(&threads[c].data->alive, 1u, 0u);
 
       // were there remote aborts?
       CFENCE;
@@ -135,7 +135,7 @@ namespace {
       CFENCE;
 
       // we committed... replay redo log
-      tx->writes.writeback();
+      tx->writes.writeback(STM_WHEN_PROTECT_STACK(upper_stack_bound));
       CFENCE;
 
       // release read locks, write locks
@@ -274,14 +274,14 @@ namespace {
    *  ByteLazy unwinder:
    */
   stm::scope_t*
-  ByteLazy::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  ByteLazy::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Perform writes to the exception object if there were any... taking the
       // branch overhead without concern because we're not worried about
       // rollback overheads.
-      STM_ROLLBACK(tx->writes, except, len);
+      STM_ROLLBACK(tx->writes, upper_stack_bound, except, len);
 
       // release the locks
       foreach (ByteLockList, i, tx->w_bytelocks)
@@ -301,7 +301,7 @@ namespace {
    *  ByteLazy in-flight irrevocability:
    */
   bool
-  ByteLazy::irrevoc(TxThread*)
+  ByteLazy::irrevoc(STM_IRREVOC_SIG(,))
   {
       return false;
   }

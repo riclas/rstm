@@ -17,14 +17,18 @@
 #include "Transaction.h"
 #include "Scope.h"
 #include "StackProtection.h"
+#include "common/ThreadLocal.hpp"
 #include "stm/txthread.hpp"
 #include "stm/lib_globals.hpp"
 using namespace stm;
 using namespace itm2stm;
 
 namespace {
-/// Our thread local transaction descriptor.
-static __thread _ITM_transaction* td = NULL;
+/// Our thread local transaction descriptor. On most platforms this uses
+/// __thread or its equivalent, but on Mac OS X---or if explicitly selected by
+/// the user---it will use a specialized template-based Pthreads
+/// implementation.
+THREAD_LOCAL_DECL_TYPE(_ITM_transaction*) td;
 
 /// This is what the stm library will call when it detects a conflict and needs
 /// to abort. We always retry in this case, and if we have a registered thrown
@@ -34,6 +38,12 @@ static __thread _ITM_transaction* td = NULL;
 /// Don't need any of the funky user-visible abort handling because the abort is
 /// invisible. Just treat it like a restart of the current scope. This is passed
 /// to sys_init.
+///
+/// Since the stm abort path doesn't protect the stack (RSTM assumes for the
+/// moment that aborts are implemented via a longjmp-style mechanism), the best
+/// that we can do is to protect the stack from here on. This is fine because we
+/// /do/ have a longjmp-style abort mechanism, and any stack clobbering that
+/// happens here is not an issue.
 void
 tmabort(stm::TxThread* tx) {
     // Clear the exception object if there is one. This is because tmabort is
@@ -42,7 +52,7 @@ tmabort(stm::TxThread* tx) {
     // rollback behavior for it, which we don't want.
     Scope* scope = static_cast<Scope*>(tx->scope);
     scope->clearThrownObject();
-    scope->getOwner().restart();
+    scope->getOwner().restart(COMPUTE_PROTECTED_STACK_ADDRESS_DEFAULT(1));
 }
 }
 

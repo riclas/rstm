@@ -71,10 +71,11 @@ namespace
       static TM_FASTCALL bool begin(TxThread*);
       static TM_FASTCALL void* read(STM_READ_SIG(,,));
       static TM_FASTCALL void write(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit(TxThread*);
+      static TM_FASTCALL void local_write(STM_WRITE_SIG(,,,));
+      static TM_FASTCALL void commit(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
       static void cm_start(TxThread*);
       static void cm_on_rollback(TxThread*);
@@ -200,6 +201,11 @@ namespace
       }
   }
 
+  void Swiss::local_write(STM_WRITE_SIG(tx,addr,val,mask))
+  {
+	  *addr = val;
+  }
+
   /**
    *  commit a read-write transaction
    *
@@ -208,7 +214,7 @@ namespace
    *  abort, we can ignore them... either we commit and zero our state,
    *  or we abort anyway.
    */
-  void Swiss::commit(TxThread* tx)
+  void Swiss::commit(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // read-only case
       if (!tx->writes.size()) {
@@ -230,7 +236,7 @@ namespace
           validate_commit(tx);
 
       // run the redo log
-      tx->writes.writeback();
+      tx->writes.writeback(STM_WHEN_PROTECT_STACK(upper_stack_bound));
 
       // now release all read and write locks covering the writeset
       foreach (NanorecList, i, tx->nanorecs) {
@@ -248,14 +254,14 @@ namespace
 
   // rollback a transaction
   stm::scope_t*
-  Swiss::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  Swiss::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Perform writes to the exception object if there were any... taking
       // the branch overhead without concern because we're not worried about
       // rollback overheads.
-      STM_ROLLBACK(tx->writes, except, len);
+      STM_ROLLBACK(tx->writes, upper_stack_bound, except, len);
 
       // now release all read and write locks covering the writeset... often,
       // we didn't acquire the read locks, but it's harmless to do it like
@@ -326,7 +332,7 @@ namespace
           return true;
 
       // self-abort if owner's priority lower than mine
-      TxThread* owner = threads[owner_id - 1];
+      TxThread* owner = threads[owner_id - 1].data;
       if (owner->cm_ts < tx->cm_ts)
           return true;
 
@@ -341,7 +347,7 @@ namespace
   }
 
   /*** Become irrevocable via abort-and-restart */
-  bool Swiss::irrevoc(TxThread*) { return false; }
+  bool Swiss::irrevoc(STM_IRREVOC_SIG(,)) { return false; }
 
   /***  Keep SwissTM metadata healthy */
   void Swiss::onSwitchTo()
@@ -369,6 +375,7 @@ namespace stm {
       stms[Swiss].commit    = ::Swiss::commit;
       stms[Swiss].read      = ::Swiss::read;
       stms[Swiss].write     = ::Swiss::write;
+      stms[Swiss].local_write     = ::Swiss::local_write;
       stms[Swiss].rollback  = ::Swiss::rollback;
       stms[Swiss].irrevoc   = ::Swiss::irrevoc;
       stms[Swiss].switcher  = ::Swiss::onSwitchTo;

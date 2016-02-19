@@ -288,9 +288,9 @@ namespace stm
       uint32_t commits = 1;
       unsigned long long nontxn_time = 0;
       for (unsigned z = 0; z < threadcount.val; z++){
-          nontxn_time += threads[z]->total_nontxn_time;
-          commits += threads[z]->num_commits;
-          commits += threads[z]->num_ro;
+          nontxn_time += threads[z].data->total_nontxn_time;
+          commits += threads[z].data->num_commits;
+          commits += threads[z].data->num_ro;
       }
       commits += !commits; // if commits is 0, make it 1, without control flow
       unsigned long long ans = 1 + (nontxn_time / commits);

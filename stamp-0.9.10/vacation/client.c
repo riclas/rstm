@@ -175,7 +175,7 @@ client_run (void* argPtr)
 
     long i;
 
-    for (i = 0; i < numOperation; i++) {
+    for (i = 0; i < numOperation; TMHT_LOCAL_WRITE(i, i+1)) {
 
         long r = random_generate(randomPtr) % 100;
         action_t action = selectAction(r, percentUser);

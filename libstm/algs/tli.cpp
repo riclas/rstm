@@ -41,11 +41,11 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
   };
 
@@ -66,7 +66,7 @@ namespace {
    *  TLI commit (read-only):
    */
   void
-  TLI::commit_ro(TxThread* tx)
+  TLI::commit_ro(STM_COMMIT_SIG(tx,))
   {
       // if the transaction is invalid, abort
       if (__builtin_expect(tx->alive == 2, false))
@@ -82,7 +82,7 @@ namespace {
    *  TLI commit (writing context):
    */
   void
-  TLI::commit_rw(TxThread* tx)
+  TLI::commit_rw(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // if the transaction is invalid, abort
       if (__builtin_expect(tx->alive == 2, false))
@@ -103,11 +103,11 @@ namespace {
 
       // kill conflicting transactions
       for (uint32_t i = 0; i < threadcount.val; i++)
-          if ((threads[i]->alive == 1) && (tx->wf->intersect(threads[i]->rf)))
-              threads[i]->alive = 2;
+          if ((threads[i].data->alive == 1) && (tx->wf->intersect(threads[i].data->rf)))
+              threads[i].data->alive = 2;
 
       // do writeback
-      tx->writes.writeback();
+      tx->writes.writeback(STM_WHEN_PROTECT_STACK(upper_stack_bound));
 
       // release the lock and clean up
       tx->alive = 0;
@@ -196,14 +196,14 @@ namespace {
    *  TLI unwinder:
    */
   stm::scope_t*
-  TLI::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  TLI::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Perform writes to the exception object if there were any... taking the
       // branch overhead without concern because we're not worried about
       // rollback overheads.
-      STM_ROLLBACK(tx->writes, except, len);
+      STM_ROLLBACK(tx->writes, upper_stack_bound, except, len);
 
       // clear filters and logs
       tx->rf->clear();
@@ -217,7 +217,7 @@ namespace {
   /**
    *  TLI in-flight irrevocability: use abort-and-restart
    */
-  bool TLI::irrevoc(TxThread*) { return false; }
+  bool TLI::irrevoc(STM_IRREVOC_SIG(,)) { return false; }
 
   /**
    *  Switch to TLI:

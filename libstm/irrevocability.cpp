@@ -8,7 +8,6 @@
  *          Please see the file LICENSE.RSTM for licensing information
  */
 
-#include "profiling.hpp"         // Trigger
 #include "common/platform.hpp"   // NORETURN, FASTCALL, etc
 #include "stm/lib_globals.hpp"   // AbortHandler
 #include "stm/macros.hpp"        // barrier signatures
@@ -23,7 +22,6 @@ using stm::AbortHandler;
 using stm::stms;
 using stm::curr_policy;
 using stm::CGL;
-using stm::Trigger;
 
 namespace {
   /**
@@ -50,7 +48,7 @@ namespace {
    *      X's default gcc-4.2.1. It's fine if we use the fully qualified
    *      namespace here.
    */
-  stm::scope_t* rollback_irrevocable(STM_ROLLBACK_SIG(,,))
+  stm::scope_t* rollback_irrevocable(STM_ROLLBACK_SIG(,,,))
   {
       UNRECOVERABLE("Irrevocable thread attempted to rollback.");
       return NULL;
@@ -74,7 +72,7 @@ namespace {
   /**
    *  custom commit for irrevocable transactions
    */
-  TM_FASTCALL void commit_irrevocable(TxThread* tx)
+  TM_FASTCALL void commit_irrevocable(STM_COMMIT_SIG(tx,))
   {
       // make self non-irrevocable, and unset local r/w/c barriers
       tx->irrevocable = false;
@@ -83,14 +81,7 @@ namespace {
       CFENCE;
       TxThread::tmbegin = stms[curr_policy.ALG_ID].begin;
       // finally, call the standard commit cleanup routine
-      // OnReadOnlyCommit(tx);
-      // NB: We need custom commit logic here, in particular, we don't want to
-      //     notify the allocator of anything because irrevocable transactions
-      //     don't buffer allocations.
-      tx->abort_hist.onCommit(tx->consec_aborts);
-      tx->consec_aborts = 0;
-      ++tx->num_commits;
-      Trigger::onCommitSTM(tx);
+      OnReadOnlyCommit(tx);
   }
 
   /**
@@ -126,7 +117,7 @@ namespace stm
    *  irrevocable barriers---it has to be done here because the rollback that
    *  the abort triggers will reset anything we try and set here.
    */
-  void become_irrevoc()
+  void become_irrevoc(STM_WHEN_PROTECT_STACK(void** upper_stack_bound))
   {
       TxThread* tx = Self;
       // special code for degenerate STM implementations
@@ -167,15 +158,19 @@ namespace stm
 
       // wait for everyone to be out of a transaction (scope == NULL)
       for (unsigned i = 0; i < threadcount.val; ++i)
-          while ((i != (tx->id-1)) && (threads[i]->scope))
+          while ((i != (tx->id-1)) && (threads[i].data->scope))
               spin64();
 
-      // try to become irrevocable inflight
+      // try to become irrevocable inflight (protects the stack during commit if
+      // necessary)
+#if defined(STM_PROTECT_STACK)
+      tx->irrevocable = TxThread::tmirrevoc(tx, upper_stack_bound);
+#else
       tx->irrevocable = TxThread::tmirrevoc(tx);
+#endif
 
       // If inflight succeeded, switch our barriers and return true.
       if (tx->irrevocable) {
-          tx->allocator.onTxCommit();    // tell the allocator do cleanup
           set_irrevocable_barriers(*tx);
           return;
       }
@@ -217,9 +212,6 @@ namespace stm
    */
   bool begin_blocker(TxThread* tx)
   {
-      // if the caller is trying to restart as irrevocable, let them
-      // NB: do not notify allocator of anything because irrevocable
-      //     transactions don't buffer allocation.
       if (tx->irrevocable) {
           set_irrevocable_barriers(*tx);
           return true;

@@ -26,14 +26,14 @@
  *  block with C-style wrapper functions.
  */
 
-#define STM_THREAD_T             stm::TxThread
-#define STM_SELF                 tm_descriptor
-#define STM_STARTUP(numThread)   tm_main_startup()
-#define STM_SHUTDOWN()           stm::sys_shutdown()
-#define STM_NEW_THREAD()         0
-#define STM_INIT_THREAD(t, id)   tm_start(&t, thread_getId())
-#define STM_FREE_THREAD(t)
-#define STM_RESTART()            stm::restart()
+#define STM_THREAD_T              stm::TxThread
+#define STM_SELF                  tm_descriptor
+#define STM_STARTUP(numThreads)   tm_main_startup(numThreads)
+#define STM_SHUTDOWN()            stm::sys_shutdown()
+#define STM_NEW_THREAD()          0
+#define STM_INIT_THREAD(t, id)    tm_start(&t, thread_getId())
+#define STM_FREE_THREAD(t)        stm::thread_shutdown()
+#define STM_RESTART()             stm::restart()
 
 #define STM_LOCAL_WRITE_I(var, val) ({var = val; var;})
 #define STM_LOCAL_WRITE_L(var, val) ({var = val; var;})
@@ -85,10 +85,10 @@ inline void tx_safe_non_tx_free(void * ptr)
  *
  *  multiple calls are safe, since the library protects itself
  */
-inline void tm_main_startup()
+inline void tm_main_startup(int numThreads)
 {
     // start the STM runtime
-    stm::sys_init(NULL);
+    stm::sys_init(numThreads, NULL);
 
     // create a descriptor for this thread
     stm::thread_init();

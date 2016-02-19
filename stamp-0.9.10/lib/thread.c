@@ -78,7 +78,6 @@ static THREAD_LOCAL_T    global_threadId;
 static long              global_numThread       = 1;
 static THREAD_BARRIER_T* global_barrierPtr      = NULL;
 static long*             global_threadIds       = NULL;
-static THREAD_ATTR_T     global_threadAttr;
 static THREAD_T*         global_threads         = NULL;
 static void            (*global_funcPtr)(void*) = NULL;
 static void*             global_argPtr          = NULL;
@@ -146,10 +145,15 @@ thread_startup (long numThread)
     assert(global_threads);
 
     /* Set up pool */
-    THREAD_ATTR_INIT(global_threadAttr);
     for (i = 1; i < numThread; i++) {
+        THREAD_ATTR_T attr;
+    	THREAD_ATTR_INIT(attr);
+
+		pthread_attr_init(&attr);
+		pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
+
         THREAD_CREATE(global_threads[i],
-                      global_threadAttr,
+                      attr,
                       &threadWait,
                       &global_threadIds[i]);
     }

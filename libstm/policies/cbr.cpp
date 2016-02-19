@@ -73,8 +73,8 @@ namespace
       uint32_t txns = 0;
       uint32_t rotxns = 0;
       for (uint32_t i = 0; i < threadcount.val; ++i) {
-          txns += threads[i]->num_commits;
-          rotxns += threads[i]->num_ro;
+          txns += threads[i].data->num_commits;
+          rotxns += threads[i].data->num_ro;
       }
       ropct = (100*rotxns)/(txns + rotxns);
 
@@ -700,8 +700,8 @@ namespace
       uint32_t txns = 0, rotxns = 0;
       qtable_t q;
       for (uint32_t i = 0; i < threadcount.val; ++i) {
-          txns += threads[i]->num_commits;
-          rotxns += threads[i]->num_ro;
+          txns += threads[i].data->num_commits;
+          rotxns += threads[i].data->num_ro;
       }
 
       q.pct_ro = (100*rotxns)/(txns + rotxns);
@@ -724,8 +724,8 @@ namespace
           uint32_t txns = 0;
           uint32_t rotxns = 0;
           for (uint32_t i = 0; i < threadcount.val; ++i) {
-              txns += threads[i]->num_commits;
-              rotxns += threads[i]->num_ro;
+              txns += threads[i].data->num_commits;
+              rotxns += threads[i].data->num_ro;
           }
           q.pct_ro = (100*rotxns)/(txns + rotxns);
       }

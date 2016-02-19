@@ -21,15 +21,13 @@ set(rstm_init_cxx_flags_Sun -mt -DHT_DEBUG +w -features=zla -template=no%extdef)
 set(rstm_init_cxx_flags_Sun_x86 -xarch=sse2)
 set(rstm_init_cxx_flags_Sun_sparc -xarch=native -xcode=pic32 -Qoption cg -Qiselect-movxtod=0,-Qiselect-movitof=0,-Qiselect-unfused_muladd=0,-Qiselect-sqrt1x=0,-Qiselect-fused_muladd=0)
 set(rstm_init_cxx_flags_Sun_RELWITHDEB_INFO -O5 -g0)
-set(rstm_init_cxx_flags_GNU_x86 -msse2 -mfpmath=sse -march=core2 -mtune=core2)
+set(rstm_init_cxx_flags_GNU_x86 -msse2 -mfpmath=sse -march=core2 -mtune=core2 -std=c++11)
 set(rstm_init_cxx_flags_GNU_sparc -mcpu=v9)
 set(rstm_init_cxx_flags_GNU_RELWITHDEBINFO -O3 -g)
-# the below warnings aren't helpful, and omitting the frame pointer will break
-# stack protection for redo-log tms.
-set(rstm_init_cxx_flags_Intel -wd981,1599 -vec_report0 -fno-omit-frame-pointer)
+set(rstm_init_cxx_flags_Intel) # universally unhelpful
 set(rstm_init_cxx_flags_Intel_DEBUG -g -debug all)
-set(rstm_init_cxx_flags_Intel_x86_RELWITHDEBINFO -O3 -g -xSSE3) # icpc has no SSE2
-set(rstm_init_cxx_flags_Intel_x86_RELEASE -O3 -DNDEBUG -xSSE3) # icpc has no SSE2
+set(rstm_init_cxx_flags_Intel_x86_RELWITHDEBINFO -O3 -g) #phi doesn't support any SSE -xSSE3) # icpc has no SSE2
+set(rstm_init_cxx_flags_Intel_x86_RELEASE -O3 -DNDEBUG) #phi doesn't support any SSE -xSSE3) # icpc has no SSE2
 
 
 ## Figure out a canonical name for the processor.

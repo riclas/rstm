@@ -40,11 +40,11 @@ namespace {
       static TM_FASTCALL void* read_rw(STM_READ_SIG(,,));
       static TM_FASTCALL void write_ro(STM_WRITE_SIG(,,,));
       static TM_FASTCALL void write_rw(STM_WRITE_SIG(,,,));
-      static TM_FASTCALL void commit_ro(TxThread*);
-      static TM_FASTCALL void commit_rw(TxThread*);
+      static TM_FASTCALL void commit_ro(STM_COMMIT_SIG(,));
+      static TM_FASTCALL void commit_rw(STM_COMMIT_SIG(,));
 
-      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,));
-      static bool irrevoc(TxThread*);
+      static stm::scope_t* rollback(STM_ROLLBACK_SIG(,,,));
+      static bool irrevoc(STM_IRREVOC_SIG(,));
       static void onSwitchTo();
   };
 
@@ -71,7 +71,7 @@ namespace {
    *  ByEAR commit (read-only):
    */
   void
-  ByEAR::commit_ro(TxThread* tx)
+  ByEAR::commit_ro(STM_COMMIT_SIG(tx,))
   {
       // read-only... release read locks
       foreach (ByteLockList, i, tx->r_bytelocks)
@@ -85,14 +85,14 @@ namespace {
    *  ByEAR commit (writing context):
    */
   void
-  ByEAR::commit_rw(TxThread* tx)
+  ByEAR::commit_rw(STM_COMMIT_SIG(tx,upper_stack_bound))
   {
       // atomically mark self committed
       if (!bcas32(&tx->alive, TX_ACTIVE, TX_COMMITTED))
           tx->tmabort(tx);
 
       // we committed... replay redo log
-      tx->writes.writeback();
+      tx->writes.writeback(STM_WHEN_PROTECT_STACK(upper_stack_bound));
       CFENCE;
 
       // release write locks, then read locks
@@ -125,13 +125,13 @@ namespace {
       }
 
       if (uint32_t owner = lock->owner) {
-          switch (threads[owner-1]->alive) {
+          switch (threads[owner-1].data->alive) {
             case TX_COMMITTED:
               // abort myself if the owner is writing back
               tx->tmabort(tx);
             case TX_ACTIVE:
               // abort the owner(it's active)
-              if (!bcas32(&threads[owner-1]->alive, TX_ACTIVE, TX_ABORTED))
+              if (!bcas32(&threads[owner-1].data->alive, TX_ACTIVE, TX_ABORTED))
                   tx->tmabort(tx);
               break;
             case TX_ABORTED:
@@ -181,13 +181,13 @@ namespace {
       }
 
       if (uint32_t owner = lock->owner) {
-          switch (threads[owner-1]->alive) {
+          switch (threads[owner-1].data->alive) {
             case TX_COMMITTED:
               // abort myself if the owner is writing back
               tx->tmabort(tx);
             case TX_ACTIVE:
               // abort the owner(it's active)
-              if (!bcas32(&threads[owner-1]->alive, TX_ACTIVE, TX_ABORTED))
+              if (!bcas32(&threads[owner-1].data->alive, TX_ACTIVE, TX_ABORTED))
                   tx->tmabort(tx);
               break;
             case TX_ABORTED:
@@ -220,7 +220,7 @@ namespace {
       while (true) {
           // abort the owner if there is one
           if (uint32_t owner = lock->owner)
-              cas32(&threads[owner-1]->alive, TX_ACTIVE, TX_ABORTED);
+              cas32(&threads[owner-1].data->alive, TX_ACTIVE, TX_ABORTED);
           // try to get ownership
           else if (bcas32(&(lock->owner), 0u, tx->id))
               break;
@@ -240,8 +240,8 @@ namespace {
       //       which can give readers inconsistent results when they trying to
       //       read while the committer is writing back.
       for (int i = 0; i < 60; ++i)
-          if (lock->reader[i] != 0 && threads[i]->alive == TX_ACTIVE)
-              if (!bcas32(&threads[i]->alive, TX_ACTIVE, TX_ABORTED))
+          if (lock->reader[i] != 0 && threads[i].data->alive == TX_ACTIVE)
+              if (!bcas32(&threads[i].data->alive, TX_ACTIVE, TX_ABORTED))
                   tx->tmabort(tx);
 
       // add to redo log
@@ -268,7 +268,7 @@ namespace {
       while (true) {
           // abort the owner if there is one
           if (uint32_t owner = lock->owner)
-              cas32(&threads[owner-1]->alive, TX_ACTIVE, TX_ABORTED);
+              cas32(&threads[owner-1].data->alive, TX_ACTIVE, TX_ABORTED);
           // try to get ownership
           else if (bcas32(&(lock->owner), 0u, tx->id))
               break;
@@ -283,8 +283,8 @@ namespace {
 
       // abort active readers
       for (int i = 0; i < 60; ++i)
-          if (lock->reader[i] != 0 && threads[i]->alive == TX_ACTIVE)
-              if (!bcas32(&threads[i]->alive, TX_ACTIVE, TX_ABORTED))
+          if (lock->reader[i] != 0 && threads[i].data->alive == TX_ACTIVE)
+              if (!bcas32(&threads[i].data->alive, TX_ACTIVE, TX_ABORTED))
                   tx->tmabort(tx);
 
       // add to redo log
@@ -295,14 +295,14 @@ namespace {
    *  ByEAR unwinder:
    */
   stm::scope_t*
-  ByEAR::rollback(STM_ROLLBACK_SIG(tx, except, len))
+  ByEAR::rollback(STM_ROLLBACK_SIG(tx, upper_stack_bound, except, len))
   {
       PreRollback(tx);
 
       // Perform writes to the exception object if there were any... taking the
       // branch overhead without concern because we're not worried about
       // rollback overheads.
-      STM_ROLLBACK(tx->writes, except, len);
+      STM_ROLLBACK(tx->writes, upper_stack_bound, except, len);
 
       // release write locks, then read locks
       foreach (ByteLockList, i, tx->w_bytelocks)
@@ -325,7 +325,7 @@ namespace {
    *  ByEAR in-flight irrevocability:
    */
   bool
-  ByEAR::irrevoc(TxThread*)
+  ByEAR::irrevoc(STM_IRREVOC_SIG(,))
   {
       return false;
   }

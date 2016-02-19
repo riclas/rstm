@@ -83,7 +83,7 @@ namespace stm
        */
       static bool mayKill(TxThread* tx, uint32_t other)
       {
-          return (threads[tx->id-1]->alive == TX_ACTIVE)
+          return (threads[tx->id-1].data->alive == TX_ACTIVE)
               && (epochs[tx->id-1].val < epochs[other].val);
       }
   };
